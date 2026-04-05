@@ -12,7 +12,7 @@ import pandas as pd
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 from xgboost import XGBRegressor
 
-from data_sources import (
+from old.data_sources import (
     DEFAULT_REGIONS,
     DataSourceError,
     combine_weighted_regions,
