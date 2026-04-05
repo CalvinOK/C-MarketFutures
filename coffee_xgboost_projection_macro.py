@@ -60,7 +60,7 @@ BUSINESS_DAYS_PER_WEEK = 5
 TEST_SIZE = 0.20
 RANDOM_STATE = 42
 MIN_TRAIN_ROWS = 200
-PREDICTION_SHRINK = 0.50
+PREDICTION_SHRINK = 0.30  # base shrinkage for 1-week horizon; scales up to ~0.85 at 52w
 
 COFFEE_LAGS = [1, 2, 3, 5, 10, 20]
 EXOG_LAGS = [1, 2, 3, 5, 10]
@@ -494,6 +494,46 @@ def add_macro_state_features(df: pd.DataFrame) -> None:
     if all(col in df.columns for col in ["brazil_harvest_flag", "coffee_trend_60d"]):
         df["harvest_trend_60_interaction"] = safe_numeric(df["brazil_harvest_flag"]) * safe_numeric(df["coffee_trend_60d"])
 
+    # ── Trend-strength and market-regime features ─────────────────────────────
+    # These help the model recognize "extended" price levels and persistent trends
+    # that characterize the large multi-month moves the model historically misses.
+    if coffee_price is not None:
+        # Z-score of current price vs. trailing 252-day distribution
+        roll_mean_252 = coffee_price.rolling(252, min_periods=60).mean()
+        roll_std_252 = coffee_price.rolling(252, min_periods=60).std().replace(0, np.nan)
+        df["coffee_price_z_score_252d"] = (coffee_price - roll_mean_252) / roll_std_252
+
+        # 200-day SMA: classic trend-following baseline
+        sma_200 = coffee_price.rolling(200, min_periods=60).mean()
+        df["coffee_vs_sma_200d"] = coffee_price / sma_200.replace(0, np.nan) - 1.0
+        df["coffee_above_sma_200d"] = (coffee_price > sma_200).astype(float)
+
+        # Distance from 52-week high/low: how extended or depressed the price is
+        high_252 = coffee_price.rolling(252, min_periods=60).max()
+        low_252 = coffee_price.rolling(252, min_periods=60).min()
+        df["coffee_distance_from_52w_high"] = coffee_price / high_252.replace(0, np.nan) - 1.0
+        df["coffee_distance_from_52w_low"] = coffee_price / low_252.replace(0, np.nan) - 1.0
+
+        # Trend acceleration: is the 60-day trend strengthening or reversing?
+        trend_60 = coffee_price.pct_change(60)
+        df["coffee_trend_acceleration"] = trend_60 - trend_60.shift(20)
+
+        # Long-term mean-reversion pressure: price vs. 3-year rolling average
+        sma_756 = coffee_price.rolling(756, min_periods=120).mean()
+        df["coffee_vs_sma_3y"] = coffee_price / sma_756.replace(0, np.nan) - 1.0
+
+    if coffee_ret is not None:
+        # Directional consistency: what fraction of recent days had positive returns
+        pos = (coffee_ret > 0).astype(float)
+        df["coffee_directional_consistency_20d"] = pos.rolling(20, min_periods=5).mean()
+        df["coffee_directional_consistency_60d"] = pos.rolling(60, min_periods=15).mean()
+
+        # Rolling Sharpe-like ratio: annualized return / vol
+        for window in [60, 120]:
+            roll_ret = coffee_ret.rolling(window, min_periods=max(10, window // 4)).mean()
+            roll_vol = coffee_ret.rolling(window, min_periods=max(10, window // 4)).std().replace(0, np.nan)
+            df[f"coffee_sharpe_{window}d"] = roll_ret / roll_vol * np.sqrt(252)
+
 
 # ============================================================
 # DATASET
@@ -652,6 +692,14 @@ def get_feature_columns(df: pd.DataFrame) -> list[str]:
         "coffee_abs_return_5d", "coffee_abs_return_20d", "coffee_abs_return_60d",
         "coffee_vol_20d", "coffee_vol_60d", "coffee_vol_regime_ratio_20_60", "coffee_high_vol_regime",
         "flowering_rainfall_90_interaction", "harvest_trend_60_interaction",
+        # Trend-strength / regime features
+        "coffee_price_z_score_252d",
+        "coffee_vs_sma_200d", "coffee_above_sma_200d",
+        "coffee_distance_from_52w_high", "coffee_distance_from_52w_low",
+        "coffee_trend_acceleration",
+        "coffee_vs_sma_3y",
+        "coffee_directional_consistency_20d", "coffee_directional_consistency_60d",
+        "coffee_sharpe_60d", "coffee_sharpe_120d",
     ]
     cols += [c for c in macro_cols if c in df.columns]
 
@@ -726,13 +774,21 @@ def fit_direct_models(df: pd.DataFrame) -> tuple[dict[int, XGBRegressor], dict[i
         X_test = test_df[features].apply(pd.to_numeric, errors="coerce")
         y_test = test_df[target_col].astype(float)
 
-        sample_weight = np.ones(len(train_df), dtype=float)
+        # Exponential recency weighting: data from ~2 years ago gets half the weight
+        # of today's data. This makes the model much more sensitive to the current
+        # market regime rather than averaging across all historical regimes equally.
+        days_ago = (
+            pd.to_datetime(train_df["Date"]).max() - pd.to_datetime(train_df["Date"])
+        ).dt.days.to_numpy(dtype=float)
+        sample_weight = np.exp(-days_ago / 730.0)   # 2-year half-life
+        sample_weight = sample_weight / sample_weight.mean()  # normalize to avg = 1.0
+
         if "coffee_high_vol_regime" in train_df.columns:
             sample_weight *= 1.0 + 0.5 * train_df["coffee_high_vol_regime"].fillna(0.0).to_numpy(dtype=float)
-        if "coffee_macro_uptrend_flag" in train_df.columns and "coffee_macro_downtrend_flag" in train_df.columns:
-            macro_regime = (train_df["coffee_macro_uptrend_flag"].fillna(0.0) + train_df["coffee_macro_downtrend_flag"].fillna(0.0)).to_numpy(dtype=float)
-            sample_weight *= 1.0 + 0.25 * macro_regime
-        sample_weight *= 1.0 + 0.01 * horizon_weeks
+        # Weight regime-transition periods more heavily at longer horizons
+        if horizon_weeks >= 8 and "coffee_macro_uptrend_flag" in train_df.columns:
+            macro_flag = train_df["coffee_macro_uptrend_flag"].fillna(0.0).to_numpy(dtype=float)
+            sample_weight *= 1.0 + 0.30 * macro_flag
 
         model = XGBRegressor(
             n_estimators=400,
@@ -835,27 +891,54 @@ def forecast_from_latest(
         pred_log_return = float(model.predict(X_latest)[0])
         lo, hi = clips[horizon_weeks]
         pred_log_return = float(np.clip(pred_log_return, lo, hi))
-        pred_log_return *= PREDICTION_SHRINK
+
+        # Horizon-dependent shrinkage: short horizons are noisy so we shrink more;
+        # at long horizons we let the model express its macro view more fully.
+        # Scales linearly from PREDICTION_SHRINK at h=1 to ~0.85 at h=52.
+        shrink = PREDICTION_SHRINK + (0.85 - PREDICTION_SHRINK) * (horizon_weeks - 1) / max(FORECAST_WEEKS - 1, 1)
+        pred_log_return *= shrink
         raw_predictions[horizon_weeks] = pred_log_return
 
-    macro_anchor = {}
-    for horizon in [12, 26, 52]:
-        if horizon in raw_predictions:
-            macro_anchor[horizon] = raw_predictions[horizon]
-
+    # Direction-preserving consistency smoothing.
+    # The previous macro blending averaged all long-horizon predictions together,
+    # which homogenized the forecast toward zero regardless of direction.
+    # New approach: if the 52-week prediction agrees in direction with the
+    # current-horizon prediction, blend them (reinforcing the trend); if they
+    # disagree, taper the current-horizon prediction toward zero at longer
+    # horizons (expressing uncertainty rather than false confidence).
+    long_anchor = raw_predictions.get(FORECAST_WEEKS) or raw_predictions.get(max(raw_predictions))
     smoothed_predictions: dict[int, float] = {}
     for horizon_weeks, pred_log_return in sorted(raw_predictions.items()):
-        long_candidates = [v for k, v in macro_anchor.items() if k >= horizon_weeks]
-        if long_candidates:
-            macro_blend = float(np.mean(long_candidates))
-            blend_weight = min(0.60, horizon_weeks / 52.0)
-            pred_log_return = (1.0 - blend_weight) * pred_log_return + blend_weight * macro_blend
+        if horizon_weeks <= 4 or long_anchor is None:
+            smoothed_predictions[horizon_weeks] = pred_log_return
+            continue
+
+        blend_weight = min(0.45, (horizon_weeks - 4) / (FORECAST_WEEKS - 4) * 0.45)
+        if np.sign(pred_log_return) == np.sign(long_anchor):
+            # Direction agreement: blend toward the long-run view (amplifies trend signal)
+            pred_log_return = (1.0 - blend_weight) * pred_log_return + blend_weight * long_anchor
+        else:
+            # Direction disagreement: taper toward zero (express uncertainty)
+            taper = max(0.25, 1.0 - blend_weight)
+            pred_log_return *= taper
         smoothed_predictions[horizon_weeks] = pred_log_return
+
+    # Build a ±1σ confidence band using the training-set RMSE at each horizon.
+    # We compute the annualized vol of coffee log-returns over the last 252 days
+    # to scale uncertainty with the current regime, then widen it at longer horizons.
+    recent_vol = safe_numeric(df["coffee_c_log_return"]).dropna().tail(252).std()
+    recent_vol = float(recent_vol) if not np.isnan(recent_vol) else 0.01
 
     rows = []
     for horizon_weeks, pred_log_return in smoothed_predictions.items():
         projected_price = anchor_price * np.exp(pred_log_return)
         forecast_date = next_business_days(anchor_date, horizon_weeks * BUSINESS_DAYS_PER_WEEK)[-1]
+
+        # Uncertainty band: scales with sqrt(time) and current vol regime
+        horizon_days = horizon_weeks * BUSINESS_DAYS_PER_WEEK
+        band_log = recent_vol * np.sqrt(horizon_days) * 1.0
+        price_upper = anchor_price * np.exp(pred_log_return + band_log)
+        price_lower = anchor_price * np.exp(pred_log_return - band_log)
 
         rows.append({
             "anchor_date": anchor_date,
@@ -867,6 +950,8 @@ def forecast_from_latest(
             "predicted_cumulative_log_return": pred_log_return,
             "projected_price": projected_price,
             "projected_pct_change": projected_price / anchor_price - 1.0,
+            "price_upper_1sigma": price_upper,
+            "price_lower_1sigma": price_lower,
         })
 
     out = pd.DataFrame(rows).sort_values("horizon_weeks").reset_index(drop=True)
@@ -874,58 +959,168 @@ def forecast_from_latest(
     return out
 
 
+def _find_peaks_troughs(prices: np.ndarray, prominence_pct: float = 0.06) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Return indices of significant peaks and troughs in a price series.
+    prominence_pct: minimum price move (as fraction of mean price) a local
+    extremum must exceed to be considered significant.
+    """
+    from scipy.signal import find_peaks
+    prominence = float(np.nanmean(prices)) * prominence_pct
+    peaks, _ = find_peaks(prices, prominence=prominence, distance=15)
+    troughs, _ = find_peaks(-prices, prominence=prominence, distance=15)
+    return peaks, troughs
+
+
 def make_projection_plot(df: pd.DataFrame, forecast_df: pd.DataFrame, anchor_date: pd.Timestamp = PRESENT_DATE) -> None:
+    import matplotlib.dates as mdates
+
     hist = df[["Date", "coffee_c"]].dropna().copy()
     hist["Date"] = pd.to_datetime(hist["Date"])
     hist = hist.sort_values("Date").reset_index(drop=True)
 
     fc = forecast_df.copy()
-    fc["anchor_date"] = pd.to_datetime(fc["anchor_date"])
-    fc["anchor_price_date"] = pd.to_datetime(fc["anchor_price_date"])
-    fc["model_asof_date"] = pd.to_datetime(fc["model_asof_date"])
-    fc["forecast_date"] = pd.to_datetime(fc["forecast_date"])
+    for col in ["anchor_date", "anchor_price_date", "model_asof_date", "forecast_date"]:
+        fc[col] = pd.to_datetime(fc[col])
     fc = fc.sort_values("forecast_date").reset_index(drop=True)
 
     anchor_date = pd.to_datetime(anchor_date).normalize()
     history_start = anchor_date - pd.DateOffset(years=HISTORY_YEARS)
     one_year_end = anchor_date + pd.DateOffset(years=1)
-
     anchor_price = float(fc["anchor_price"].iloc[0])
 
-    hist = hist.loc[(hist["Date"] >= history_start) & (hist["Date"] <= anchor_date)].copy()
+    hist_window = hist.loc[(hist["Date"] >= history_start) & (hist["Date"] <= anchor_date)].copy()
 
-    anchor_hist = hist.loc[hist["Date"] == anchor_date].copy()
-    if anchor_hist.empty:
-        hist = pd.concat(
-            [
-                hist,
-                pd.DataFrame({"Date": [anchor_date], "coffee_c": [anchor_price]}),
-            ],
+    # Stitch anchor price to historical window if the exact date is absent
+    if hist_window.loc[hist_window["Date"] == anchor_date].empty:
+        hist_window = pd.concat(
+            [hist_window, pd.DataFrame({"Date": [anchor_date], "coffee_c": [anchor_price]})],
             ignore_index=True,
         ).sort_values("Date").drop_duplicates(subset=["Date"], keep="last").reset_index(drop=True)
 
+    # Forecast curve (starting from anchor price)
     fc_plot = pd.concat(
         [
-            pd.DataFrame({"plot_date": [anchor_date], "plot_price": [anchor_price]}),
-            fc[["forecast_date", "projected_price"]].rename(
-                columns={"forecast_date": "plot_date", "projected_price": "plot_price"}
+            pd.DataFrame({"plot_date": [anchor_date], "plot_price": [anchor_price],
+                          "upper": [anchor_price], "lower": [anchor_price]}),
+            fc[["forecast_date", "projected_price", "price_upper_1sigma", "price_lower_1sigma"]].rename(
+                columns={"forecast_date": "plot_date", "projected_price": "plot_price",
+                         "price_upper_1sigma": "upper", "price_lower_1sigma": "lower"}
             ),
         ],
         ignore_index=True,
     )
-    fc_plot = fc_plot.loc[(fc_plot["plot_date"] >= anchor_date) & (fc_plot["plot_date"] <= one_year_end)].copy()
+    fc_plot = fc_plot.loc[
+        (fc_plot["plot_date"] >= anchor_date) & (fc_plot["plot_date"] <= one_year_end)
+    ].copy()
 
-    plt.figure(figsize=(14, 7))
-    plt.plot(hist["Date"], hist["coffee_c"], label="Historical coffee price")
-    plt.plot(fc_plot["plot_date"], fc_plot["plot_price"], marker="o", label="Projected coffee price")
-    plt.axvline(anchor_date, linestyle="--", linewidth=1, label=f"Anchor date ({anchor_date.date()})")
-    plt.xlabel("Date")
-    plt.ylabel("Coffee price")
-    plt.title("Coffee price: 2 years historical + 1 year projected from Apr 3, 2026")
-    plt.xlim(history_start, one_year_end)
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig(PLOT_FILE, dpi=150)
+    # 52-week high/low from the visible historical window
+    hist_prices = hist_window["coffee_c"].values
+    w52_high = float(np.nanmax(hist_prices))
+    w52_low = float(np.nanmin(hist_prices))
+
+    # Detect peaks and troughs in the historical window
+    peak_idx, trough_idx = _find_peaks_troughs(hist_prices)
+    peak_dates = hist_window["Date"].iloc[peak_idx].values
+    peak_prices = hist_window["coffee_c"].iloc[peak_idx].values
+    trough_dates = hist_window["Date"].iloc[trough_idx].values
+    trough_prices = hist_window["coffee_c"].iloc[trough_idx].values
+
+    # ── Plot ──────────────────────────────────────────────────────────────────
+    fig, axes = plt.subplots(2, 1, figsize=(15, 11), gridspec_kw={"height_ratios": [3, 1]})
+    fig.patch.set_facecolor("#f9f9f9")
+
+    ax = axes[0]
+    ax.set_facecolor("#f9f9f9")
+
+    # Historical price
+    ax.plot(hist_window["Date"], hist_window["coffee_c"],
+            color="#2c7bb6", linewidth=1.8, label="Historical price", zorder=3)
+
+    # Peak / trough markers
+    if len(peak_idx):
+        ax.scatter(peak_dates, peak_prices, marker="v", color="#d62728", s=70, zorder=5,
+                   label="Historical peak")
+        for d, p in zip(peak_dates, peak_prices):
+            ax.annotate(f"{p:.0f}", (d, p), textcoords="offset points",
+                        xytext=(0, 7), ha="center", fontsize=7, color="#d62728")
+    if len(trough_idx):
+        ax.scatter(trough_dates, trough_prices, marker="^", color="#2ca02c", s=70, zorder=5,
+                   label="Historical trough")
+        for d, p in zip(trough_dates, trough_prices):
+            ax.annotate(f"{p:.0f}", (d, p), textcoords="offset points",
+                        xytext=(0, -12), ha="center", fontsize=7, color="#2ca02c")
+
+    # ±1σ uncertainty band around forecast
+    ax.fill_between(fc_plot["plot_date"], fc_plot["lower"], fc_plot["upper"],
+                    color="orange", alpha=0.20, label="±1σ uncertainty band")
+
+    # Forecast line
+    ax.plot(fc_plot["plot_date"], fc_plot["plot_price"],
+            color="#e8820c", linewidth=2.2, linestyle="--", marker="o",
+            markersize=3, label="Projected price", zorder=4)
+
+    # 52-week high/low reference lines extending into the forecast period
+    ax.axhline(w52_high, linestyle=":", linewidth=1.0, color="#d62728", alpha=0.55,
+               label=f"2-yr high  {w52_high:.0f}")
+    ax.axhline(w52_low, linestyle=":", linewidth=1.0, color="#2ca02c", alpha=0.55,
+               label=f"2-yr low  {w52_low:.0f}")
+
+    # Anchor date divider
+    ax.axvline(anchor_date, linestyle="--", linewidth=1.2, color="gray", alpha=0.5,
+               label=f"Anchor  {anchor_date.date()}")
+
+    ax.set_title(
+        "Coffee Futures — XGBoost Macro Projection\n"
+        f"2-year history + 1-year forecast from {anchor_date.date()}",
+        fontsize=13, pad=10,
+    )
+    ax.set_ylabel("Price (cents/lb)")
+    ax.set_xlim(history_start, one_year_end)
+    ax.legend(fontsize=8, loc="upper left", ncol=2)
+    ax.grid(True, alpha=0.25)
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
+    plt.setp(ax.get_xticklabels(), rotation=15, ha="right")
+
+    # ── Bottom panel: projected % change vs. anchor ───────────────────────────
+    ax2 = axes[1]
+    ax2.set_facecolor("#f9f9f9")
+
+    fc_pct = fc.copy()
+    pct_change = (fc_pct["projected_price"] / anchor_price - 1.0) * 100.0
+    upper_pct = (fc_pct["price_upper_1sigma"] / anchor_price - 1.0) * 100.0
+    lower_pct = (fc_pct["price_lower_1sigma"] / anchor_price - 1.0) * 100.0
+
+    ax2.fill_between(fc_pct["forecast_date"], lower_pct, upper_pct,
+                     color="orange", alpha=0.20)
+    ax2.plot(fc_pct["forecast_date"], pct_change,
+             color="#e8820c", linewidth=2.0, linestyle="--")
+    ax2.axhline(0, color="gray", linewidth=1.0, alpha=0.6)
+
+    # Mark the forecasted peak and trough in the projection
+    if len(fc_pct):
+        max_idx = pct_change.idxmax()
+        min_idx = pct_change.idxmin()
+        ax2.scatter(fc_pct["forecast_date"].iloc[max_idx], pct_change.iloc[max_idx],
+                    marker="v", color="#d62728", s=80, zorder=5)
+        ax2.annotate(f"Peak  {pct_change.iloc[max_idx]:+.1f}%",
+                     (fc_pct["forecast_date"].iloc[max_idx], pct_change.iloc[max_idx]),
+                     textcoords="offset points", xytext=(6, 4), fontsize=8, color="#d62728")
+        ax2.scatter(fc_pct["forecast_date"].iloc[min_idx], pct_change.iloc[min_idx],
+                    marker="^", color="#2ca02c", s=80, zorder=5)
+        ax2.annotate(f"Trough  {pct_change.iloc[min_idx]:+.1f}%",
+                     (fc_pct["forecast_date"].iloc[min_idx], pct_change.iloc[min_idx]),
+                     textcoords="offset points", xytext=(6, -12), fontsize=8, color="#2ca02c")
+
+    ax2.set_ylabel("% change from anchor")
+    ax2.set_xlabel("Date")
+    ax2.set_xlim(anchor_date, one_year_end)
+    ax2.grid(True, alpha=0.25)
+    ax2.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
+    plt.setp(ax2.get_xticklabels(), rotation=15, ha="right")
+
+    plt.tight_layout(pad=2.5)
+    plt.savefig(PLOT_FILE, dpi=150, bbox_inches="tight")
     plt.close()
 
 

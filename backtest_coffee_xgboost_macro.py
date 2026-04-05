@@ -216,7 +216,11 @@ def walk_forward_backtest(
         lo = float(np.nanpercentile(y_train, 5))
         hi = float(np.nanpercentile(y_train, 95))
         clipped_pred = np.clip(raw_pred, lo, hi)
-        shrunk_pred = clipped_pred * 0.5
+        # Horizon-dependent shrinkage, matching the projection script:
+        # short horizons are noisy (shrink more), long horizons express the macro view
+        FORECAST_WEEKS = getattr(module, "FORECAST_WEEKS", 52)
+        shrink = 0.30 + (0.85 - 0.30) * (horizon_weeks - 1) / max(FORECAST_WEEKS - 1, 1)
+        shrunk_pred = clipped_pred * shrink
         baseline_pred = np.zeros(len(y_test), dtype=float)
 
         last_price = test_df["coffee_c"].astype(float).to_numpy()
@@ -288,23 +292,93 @@ def walk_forward_backtest(
     return preds, metrics
 
 
+def _find_peaks_troughs(prices: np.ndarray, prominence_pct: float = 0.06) -> tuple[np.ndarray, np.ndarray]:
+    from scipy.signal import find_peaks
+    prominence = float(np.nanmean(prices)) * prominence_pct
+    peaks, _ = find_peaks(prices, prominence=prominence, distance=15)
+    troughs, _ = find_peaks(-prices, prominence=prominence, distance=15)
+    return peaks, troughs
+
+
 def make_plot(predictions: pd.DataFrame, horizon_weeks: int, out_file: Path) -> None:
+    import matplotlib.dates as mdates
+
     plot_df = predictions[predictions["horizon_weeks"] == horizon_weeks].copy()
     if plot_df.empty:
         return
+    plot_df = plot_df.sort_values("forecast_date").reset_index(drop=True)
 
-    plot_df = plot_df.sort_values("forecast_date")
+    actual = plot_df["actual_price"].to_numpy()
+    predicted = plot_df["predicted_price"].to_numpy()
+    baseline = plot_df["baseline_price"].to_numpy()
+    dates = pd.to_datetime(plot_df["forecast_date"])
 
-    plt.figure(figsize=(12, 6))
-    plt.plot(plot_df["forecast_date"], plot_df["actual_price"], label="Actual future price")
-    plt.plot(plot_df["forecast_date"], plot_df["predicted_price"], label="Predicted future price")
-    plt.plot(plot_df["forecast_date"], plot_df["baseline_price"], label="Zero-return baseline")
-    plt.xlabel("Forecast date")
-    plt.ylabel("Coffee price")
-    plt.title(f"Coffee backtest: {horizon_weeks}-week horizon")
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig(out_file, dpi=150)
+    # Detect significant peaks and troughs in the actual prices
+    peak_idx, trough_idx = _find_peaks_troughs(actual)
+
+    # Error (prediction - actual)
+    error = predicted - actual
+    mae = float(np.nanmean(np.abs(error)))
+    rmse = float(np.sqrt(np.nanmean(error ** 2)))
+    direction_match = float(np.nanmean(
+        np.sign(predicted - plot_df["last_observed_price"].to_numpy()) ==
+        np.sign(actual - plot_df["last_observed_price"].to_numpy())
+    ))
+
+    fig, axes = plt.subplots(2, 1, figsize=(13, 10),
+                             gridspec_kw={"height_ratios": [3, 1]})
+    fig.patch.set_facecolor("#f9f9f9")
+
+    # ── Top panel: price tracks ───────────────────────────────────────────────
+    ax = axes[0]
+    ax.set_facecolor("#f9f9f9")
+
+    ax.plot(dates, actual, color="#2c7bb6", linewidth=1.8, label="Actual future price", zorder=3)
+    ax.plot(dates, predicted, color="#e8820c", linewidth=1.8, label="Predicted future price", zorder=4)
+    ax.plot(dates, baseline, color="#4daf4a", linewidth=1.2, linestyle="--",
+            alpha=0.7, label="Zero-return baseline", zorder=2)
+
+    # Mark actual peaks / troughs
+    if len(peak_idx):
+        ax.scatter(dates.iloc[peak_idx], actual[peak_idx],
+                   marker="v", color="#d62728", s=70, zorder=6, label="Actual peak")
+        for i in peak_idx:
+            ax.annotate(f"{actual[i]:.0f}", (dates.iloc[i], actual[i]),
+                        textcoords="offset points", xytext=(0, 8),
+                        ha="center", fontsize=7, color="#d62728")
+    if len(trough_idx):
+        ax.scatter(dates.iloc[trough_idx], actual[trough_idx],
+                   marker="^", color="#2ca02c", s=70, zorder=6, label="Actual trough")
+        for i in trough_idx:
+            ax.annotate(f"{actual[i]:.0f}", (dates.iloc[i], actual[i]),
+                        textcoords="offset points", xytext=(0, -13),
+                        ha="center", fontsize=7, color="#2ca02c")
+
+    ax.set_title(
+        f"Coffee backtest: {horizon_weeks}-week horizon\n"
+        f"MAE={mae:.1f}  RMSE={rmse:.1f}  Direction={direction_match:.0%}",
+        fontsize=12, pad=8,
+    )
+    ax.set_ylabel("Price (cents/lb)")
+    ax.legend(fontsize=8, loc="upper left")
+    ax.grid(True, alpha=0.25)
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
+    plt.setp(ax.get_xticklabels(), rotation=15, ha="right")
+
+    # ── Bottom panel: prediction error ───────────────────────────────────────
+    ax2 = axes[1]
+    ax2.set_facecolor("#f9f9f9")
+    ax2.bar(dates, error, color=np.where(error >= 0, "#e8820c", "#2c7bb6"),
+            alpha=0.7, width=4)
+    ax2.axhline(0, color="gray", linewidth=1.0)
+    ax2.set_ylabel("Pred − Actual")
+    ax2.set_xlabel("Forecast date")
+    ax2.grid(True, alpha=0.25)
+    ax2.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
+    plt.setp(ax2.get_xticklabels(), rotation=15, ha="right")
+
+    plt.tight_layout(pad=2.5)
+    plt.savefig(out_file, dpi=150, bbox_inches="tight")
     plt.close()
 
 
