@@ -149,7 +149,7 @@ def evaluate_candidate(train_raw, test_raw, model_type, order, seasonal_order, u
         pred = fitted.forecast(steps=len(test_raw))
         pred = pd.Series(invert_forecast(pred, use_log), index=test_raw.index)
         mae = float(mean_absolute_error(test_raw, pred))
-        score_rmse = float(np.sqrt(mean_squared_error(test_raw, pred)))
+        rmse = float(np.sqrt(mean_squared_error(test_raw, pred)))
         aic = float(getattr(fitted, "aic", np.nan))
         wiggle = 0.0
         if model_type == "SARIMA":
@@ -157,7 +157,7 @@ def evaluate_candidate(train_raw, test_raw, model_type, order, seasonal_order, u
             sign_changes = (np.sign(diffs).diff().fillna(0) != 0).sum()
             wiggle = 0.05 * sign_changes
         return dict(ok=True, model_type=model_type, order=order,
-                    seasonal_order=seasonal_order, mae=mae, rmse=score_rmse,
+                    seasonal_order=seasonal_order, mae=mae, rmse=rmse,
                     aic=aic, selection_score=mae + wiggle, pred=pred, fit=fitted)
     except Exception as e:
         return dict(ok=False, model_type=model_type, order=order,
@@ -237,7 +237,7 @@ def estimate_garch_params(residuals: np.ndarray):
 # ──────────────────────────────────────────────
 # Monte Carlo forward simulation with GARCH vol
 # ──────────────────────────────────────────────
-def simulate_arima_garch(fit, series_raw: pd.Series, steps: int,
+def simulate_arima_garch(series_raw: pd.Series, steps: int,
                          use_log: bool, n_sims: int = 1000,
                          vol_lookback: int = 126):
     """
@@ -318,14 +318,14 @@ def simulate_arima_garch(fit, series_raw: pd.Series, steps: int,
 # Output / plotting
 # ──────────────────────────────────────────────
 def save_outputs(series, train, test, test_pred,
-                 forecast_mean, lower_95, upper_95, sample_paths,
+                 forecast_mean, lower_65, upper_65, sample_paths,
                  future_index, output_dir):
     os.makedirs(output_dir, exist_ok=True)
 
     forecast_df = pd.DataFrame({
         "Forecast": forecast_mean,
-        "Lower_95": lower_95,
-        "Upper_95": upper_95,
+        "Lower_65": lower_65,
+        "Upper_65": upper_65,
     }, index=future_index)
     forecast_csv = os.path.join(output_dir, "coffee_arima_forecast.csv")
     forecast_df.to_csv(forecast_csv, index_label="Date")
@@ -360,7 +360,7 @@ def save_outputs(series, train, test, test_pred,
         clipped = np.clip(path, price_floor, price_ceil)
         ax1.plot(future_index, clipped, color="green", alpha=0.07, linewidth=0.8)
 
-    ax1.fill_between(future_index, lower_95, upper_95,
+    ax1.fill_between(future_index, lower_65, upper_65,
                      color="green", alpha=0.30, label="65% Simulated Interval")
     ax1.plot(future_index, forecast_mean, color="darkgreen",
              linewidth=2.2, linestyle="--", label="Most Likely Path", zorder=5)
@@ -368,7 +368,7 @@ def save_outputs(series, train, test, test_pred,
 
     # Pin y-axis: show from 20% below last price to 60% above, so the
     # fan is clearly visible regardless of outlier paths.
-    all_visible = np.concatenate([history.values, test_pred.values, lower_95, upper_95])
+    all_visible = np.concatenate([history.values, test_pred.values, lower_65, upper_65])
     ymin = max(min(all_visible) * 0.90, last_price * 0.35)
     ymax = min(max(all_visible) * 1.05, last_price * 1.75)
     ax1.set_ylim(ymin, ymax)
@@ -473,8 +473,7 @@ def main():
     final_fit = fit_model(y_full, best["order"], best["seasonal_order"])
 
     print(f"Simulating {args.sims} forward paths ({args.forecast_steps} steps) …")
-    forecast_mean, lower_95, upper_95, sample_paths = simulate_arima_garch(
-        fit=final_fit,
+    forecast_mean, lower_65, upper_65, sample_paths = simulate_arima_garch(
         series_raw=series,
         steps=args.forecast_steps,
         use_log=args.log,
@@ -493,8 +492,8 @@ def main():
         test=test,
         test_pred=rolling_pred,
         forecast_mean=forecast_mean,
-        lower_95=lower_95,
-        upper_95=upper_95,
+        lower_65=lower_65,
+        upper_65=upper_65,
         sample_paths=sample_paths,
         future_index=future_index,
         output_dir=output_dir,
