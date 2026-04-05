@@ -279,21 +279,37 @@ def build_future_row(history: pd.DataFrame, future_exog_actual: pd.DataFrame, da
 
 
 def recompute_features(df: pd.DataFrame) -> pd.DataFrame:
+    # After appending mixed-type rows, pandas can upcast numeric columns to object.
+    # Force the modeling columns back to numeric before rolling/lag calculations.
+    numeric_bases = [
+        "coffee_c", "coffee_c_return_pct",
+        "soybeans", "soybeans_return_pct",
+        "sugar", "sugar_return_pct",
+        "usd_brl", "usd_brl_return_pct",
+        "tmax", "tmax_change_pct", "tmin", "tmin_change_pct", "rainfall",
+    ]
+    for col in numeric_bases:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
     # Recompute lag and rolling features after appending a new predicted row.
     for lag in COFFEE_LAGS:
         df[f"coffee_c_return_pct_lag_{lag}"] = df["coffee_c_return_pct"].shift(lag)
     for w in ROLL_WINDOWS:
-        df[f"coffee_c_return_pct_roll_mean_{w}"] = df["coffee_c_return_pct"].rolling(w).mean()
-        df[f"coffee_c_return_pct_roll_std_{w}"] = df["coffee_c_return_pct"].rolling(w).std()
+        base = pd.to_numeric(df["coffee_c_return_pct"], errors="coerce")
+        df[f"coffee_c_return_pct_roll_mean_{w}"] = base.rolling(w).mean()
+        df[f"coffee_c_return_pct_roll_std_{w}"] = base.rolling(w).std()
 
     for base, lags in BRIDGE_EXOG_LAGS.items():
         if base in df.columns:
+            df[base] = pd.to_numeric(df[base], errors="coerce")
             for lag in lags:
                 df[f"{base}_lag_{lag}"] = df[base].shift(lag)
 
     if USE_CLIMATE:
         climate_bases = [c for c in ["tmax", "tmin", "rainfall", "tmax_change_pct", "tmin_change_pct"] if c in df.columns]
         for base in climate_bases:
+            df[base] = pd.to_numeric(df[base], errors="coerce")
             for lag in CLIMATE_LAGS:
                 df[f"{base}_lag_{lag}"] = df[base].shift(lag)
     return df
@@ -334,14 +350,14 @@ def forecast_future(df: pd.DataFrame, model_bundle: dict) -> pd.DataFrame:
         features = primary_features if model_type == "primary_bridge_model" else fallback_features
         model = primary_model if model_type == "primary_bridge_model" else fallback_model
 
-        X_row = state.loc[[state.index[-1]], features]
+        X_row = state.loc[[state.index[-1]], features].apply(pd.to_numeric, errors="coerce")
 
         # If the primary model row still has NaNs because not enough lags exist, fall back early.
         if X_row.isna().any(axis=1).iloc[0]:
             model_type = "fallback_autoregressive_model"
             features = fallback_features
             model = fallback_model
-            X_row = state.loc[[state.index[-1]], features]
+            X_row = state.loc[[state.index[-1]], features].apply(pd.to_numeric, errors="coerce")
 
         pred_return = float(model.predict(X_row)[0])
 
