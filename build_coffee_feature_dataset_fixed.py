@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 from pathlib import Path
@@ -13,8 +12,10 @@ import pandas as pd
 # ============================================================
 
 BASE_DIR = Path(".")
+DATA_DIR = BASE_DIR / "data"
 LOGDATA_DIR = BASE_DIR / "logdata"
 OUTPUT_DIR = BASE_DIR / "outputs"
+
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 LOGDATA_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -22,17 +23,34 @@ COFFEE_FILE = LOGDATA_DIR / "CoffeeCData_log_returns.csv"
 SOY_FILE = LOGDATA_DIR / "US Soybeans Futures Historical Data_log_returns.csv"
 SUGAR_FILE = LOGDATA_DIR / "US Sugar #11 Futures Historical Data_log_returns.csv"
 FX_FILE = LOGDATA_DIR / "USD_BRLT Historical Data_log_returns.csv"
-CLIMATE_FILE = LOGDATA_DIR / "coffee_climate_sao_paulo.csv"
 
-# Supports either a cleaned enso.csv or the raw NOAA file.
+CLIMATE_CANDIDATES = [
+    LOGDATA_DIR / "coffee_climate_sao_paulo.csv",
+    DATA_DIR / "coffee_climate_sao_paulo.csv",
+]
+
+# Prefer already-cleaned ENSO, then raw NOAA, in either data/ or logdata/
 ENSO_CANDIDATES = [
     LOGDATA_DIR / "enso.csv",
-    BASE_DIR / "nino34.long.anom.csv",
+    DATA_DIR / "enso.csv",
+    DATA_DIR / "nino34.long.anom.csv",
     LOGDATA_DIR / "nino34.long.anom.csv",
 ]
 
-DROUGHT_FILE = LOGDATA_DIR / "brazil_drought.csv"
-FROST_FILE = LOGDATA_DIR / "brazil_frost.csv"
+# Optional event data can live in either folder
+DROUGHT_CANDIDATES = [
+    LOGDATA_DIR / "brazil_drought.csv",
+    DATA_DIR / "brazil_drought.csv",
+]
+
+FROST_CANDIDATES = [
+    LOGDATA_DIR / "brazil_frost.csv",
+    DATA_DIR / "brazil_frost.csv",
+]
+
+CANONICAL_ENSO_FILE = LOGDATA_DIR / "enso.csv"
+CANONICAL_DROUGHT_FILE = LOGDATA_DIR / "brazil_drought.csv"
+CANONICAL_FROST_FILE = LOGDATA_DIR / "brazil_frost.csv"
 
 OUTPUT_FILE = OUTPUT_DIR / "coffee_feature_dataset.csv"
 
@@ -41,8 +59,50 @@ OUTPUT_FILE = OUTPUT_DIR / "coffee_feature_dataset.csv"
 # HELPERS
 # ============================================================
 
+
 def safe_numeric(series: pd.Series) -> pd.Series:
     return pd.to_numeric(series, errors="coerce")
+
+
+def first_existing(paths: list[Path]) -> Path | None:
+    for path in paths:
+        if path.exists():
+            return path
+    return None
+
+
+def normalize_date_column(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    out["Date"] = pd.to_datetime(out["Date"], errors="coerce")
+    out = out.dropna(subset=["Date"])
+    out["Date"] = out["Date"].dt.normalize()
+    out = out.sort_values("Date").drop_duplicates(subset=["Date"], keep="last").reset_index(drop=True)
+    return out
+
+
+def normalize_numeric_columns(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
+    out = df.copy()
+    for col in cols:
+        if col in out.columns:
+            out[col] = safe_numeric(out[col])
+    return out
+
+
+def pick_value_column(df: pd.DataFrame, preferred: list[str]) -> str | None:
+    lower_lookup = {c.lower(): c for c in df.columns}
+    for name in preferred:
+        if name.lower() in lower_lookup:
+            return lower_lookup[name.lower()]
+
+    non_date_cols = [c for c in df.columns if c.lower() != "date"]
+    if len(non_date_cols) == 1:
+        return non_date_cols[0]
+    return None
+
+
+def canonicalize_binary(series: pd.Series) -> pd.Series:
+    numeric = safe_numeric(series)
+    return (numeric.fillna(0.0) > 0).astype(float)
 
 
 def load_market_log_file(file_path: Path, value_name: str) -> pd.DataFrame:
@@ -76,24 +136,28 @@ def load_market_log_file(file_path: Path, value_name: str) -> pd.DataFrame:
         df[["Date", "Price", log_return_col]]
         .dropna(subset=["Date"])
         .sort_values("Date")
+        .drop_duplicates(subset=["Date"], keep="last")
         .reset_index(drop=True)
         .rename(columns={"Price": value_name, log_return_col: f"{value_name}_log_return"})
     )
     return out
 
 
-def load_climate_file(file_path: Path) -> pd.DataFrame:
-    if not file_path.exists():
-        raise FileNotFoundError(f"Missing climate file: {file_path}")
+def load_climate_file() -> pd.DataFrame:
+    climate_path = first_existing(CLIMATE_CANDIDATES)
+    if climate_path is None:
+        raise FileNotFoundError(
+            "Missing climate file. Expected one of: "
+            + ", ".join(str(p) for p in CLIMATE_CANDIDATES)
+        )
 
-    df = pd.read_csv(file_path)
-    df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+    df = pd.read_csv(climate_path)
+    if "Date" not in df.columns:
+        raise ValueError(f"{climate_path.name} must contain a Date column")
 
-    for col in ["tmax", "tmax_change_pct", "tmin", "tmin_change_pct", "rainfall"]:
-        if col in df.columns:
-            df[col] = safe_numeric(df[col])
-
-    return df.sort_values("Date").reset_index(drop=True)
+    df = normalize_date_column(df)
+    df = normalize_numeric_columns(df, ["tmax", "tmax_change_pct", "tmin", "tmin_change_pct", "rainfall"])
+    return df
 
 
 def load_enso_file() -> tuple[pd.DataFrame | None, str | None]:
@@ -102,50 +166,56 @@ def load_enso_file() -> tuple[pd.DataFrame | None, str | None]:
             continue
 
         df = pd.read_csv(path)
-
         if "Date" not in df.columns:
             continue
 
-        # Raw NOAA file has a long column name like:
-        # "   NINA34  missing value -99.99 https://psl.noaa.gov/data/timeseries/month/"
-        if "enso_index" in df.columns:
-            value_col = "enso_index"
-        else:
-            non_date_cols = [c for c in df.columns if c != "Date"]
-            if not non_date_cols:
-                continue
-            value_col = non_date_cols[0]
+        value_col = pick_value_column(df, ["enso_index", "anomaly", "nino34", "value"])
+        if value_col is None:
+            continue
 
         out = df[["Date", value_col]].copy()
-        out["Date"] = pd.to_datetime(out["Date"], errors="coerce")
+        out = normalize_date_column(out)
         out[value_col] = safe_numeric(out[value_col]).replace(-99.99, np.nan)
         out = out.rename(columns={value_col: "enso_index"})
-        out = out.dropna(subset=["Date"]).sort_values("Date").reset_index(drop=True)
-
-        # Save cleaned monthly ENSO file for reuse
-        cleaned_path = LOGDATA_DIR / "enso.csv"
-        out.to_csv(cleaned_path, index=False)
-
+        out.to_csv(CANONICAL_ENSO_FILE, index=False)
         return out, None
 
-    return None, "Missing optional file: enso.csv or nino34.long.anom.csv"
+    return None, "Missing optional ENSO file in data/ or logdata/"
 
 
-def load_optional_simple_file(path: Path, value_cols: list[str]) -> tuple[pd.DataFrame | None, str | None]:
-    if not path.exists():
-        return None, f"Missing optional file: {path.name}"
+def load_optional_event_file(
+    candidates: list[Path],
+    canonical_name: str,
+    alias_columns: list[str],
+    *,
+    binary: bool = False,
+) -> tuple[pd.DataFrame | None, str | None]:
+    path = first_existing(candidates)
+    if path is None:
+        return None, f"Missing optional file: one of {[p.name for p in candidates]}"
 
     df = pd.read_csv(path)
-    required = ["Date"] + value_cols
-    missing = [c for c in required if c not in df.columns]
-    if missing:
-        return None, f"{path.name} is missing columns: {missing}"
+    if "Date" not in df.columns:
+        return None, f"{path.name} must contain a Date column"
 
-    df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
-    for col in value_cols:
-        df[col] = safe_numeric(df[col])
+    value_col = pick_value_column(df, alias_columns)
+    if value_col is None:
+        return None, (
+            f"{path.name} must contain one of {alias_columns} or exactly one non-Date value column"
+        )
 
-    return df[required].sort_values("Date").reset_index(drop=True), None
+    out = df[["Date", value_col]].copy()
+    out = normalize_date_column(out)
+    if binary:
+        out[value_col] = canonicalize_binary(out[value_col])
+    else:
+        out[value_col] = safe_numeric(out[value_col])
+
+    out = out.rename(columns={value_col: canonical_name})
+
+    canonical_path = LOGDATA_DIR / path.name
+    out.to_csv(canonical_path, index=False)
+    return out, None
 
 
 def add_lags(df: pd.DataFrame, col: str, lags: list[int]) -> None:
@@ -253,9 +323,15 @@ def add_core_lags(df: pd.DataFrame) -> None:
 
 def cumulative_target(series: pd.Series, horizon: int) -> pd.Series:
     out = pd.Series(0.0, index=series.index)
+    numeric_series = safe_numeric(series)
     for i in range(1, horizon + 1):
-        out = out + safe_numeric(series).shift(-i)
+        out = out + numeric_series.shift(-i)
     return out
+
+
+# ============================================================
+# MAIN DATASET BUILD
+# ============================================================
 
 
 def build_feature_dataset() -> tuple[pd.DataFrame, list[str]]:
@@ -265,7 +341,7 @@ def build_feature_dataset() -> tuple[pd.DataFrame, list[str]]:
     soy = load_market_log_file(SOY_FILE, "soybeans")
     sugar = load_market_log_file(SUGAR_FILE, "sugar")
     fx = load_market_log_file(FX_FILE, "usd_brl")
-    climate = load_climate_file(CLIMATE_FILE)
+    climate = load_climate_file()
 
     df = coffee.merge(soy, on="Date", how="left")
     df = df.merge(sugar, on="Date", how="left")
@@ -273,7 +349,10 @@ def build_feature_dataset() -> tuple[pd.DataFrame, list[str]]:
     df = df.merge(climate, on="Date", how="left")
     df = df.sort_values("Date").reset_index(drop=True)
 
-    market_cols = [c for c in df.columns if c not in ["Date", "tmax", "tmax_change_pct", "tmin", "tmin_change_pct", "rainfall"]]
+    market_cols = [
+        c for c in df.columns
+        if c not in ["Date", "tmax", "tmax_change_pct", "tmin", "tmin_change_pct", "rainfall"]
+    ]
     df[market_cols] = df[market_cols].ffill()
 
     climate_cols = [c for c in ["tmax", "tmax_change_pct", "tmin", "tmin_change_pct", "rainfall"] if c in df.columns]
@@ -286,18 +365,32 @@ def build_feature_dataset() -> tuple[pd.DataFrame, list[str]]:
     else:
         df = df.merge(enso_df, on="Date", how="left")
         df["enso_index"] = safe_numeric(df["enso_index"]).ffill(limit=31)
+        df["enso_missing_flag"] = df["enso_index"].isna().astype(float)
 
-    drought_df, drought_err = load_optional_simple_file(DROUGHT_FILE, ["drought_index"])
+    drought_df, drought_err = load_optional_event_file(
+        DROUGHT_CANDIDATES,
+        "drought_index",
+        ["drought_index", "drought_flag", "severity", "value"],
+        binary=False,
+    )
     if drought_err:
         missing_optional_messages.append(drought_err)
     else:
         df = df.merge(drought_df, on="Date", how="left")
+        df["drought_index"] = safe_numeric(df["drought_index"]).ffill(limit=31)
+        df["drought_flag"] = (safe_numeric(df["drought_index"]).fillna(0.0) > 0).astype(float)
 
-    frost_df, frost_err = load_optional_simple_file(FROST_FILE, ["frost_flag"])
+    frost_df, frost_err = load_optional_event_file(
+        FROST_CANDIDATES,
+        "frost_flag",
+        ["frost_flag", "frost", "freeze_flag", "event_flag", "value"],
+        binary=True,
+    )
     if frost_err:
         missing_optional_messages.append(frost_err)
     else:
         df = df.merge(frost_df, on="Date", how="left")
+        df["frost_flag"] = canonicalize_binary(df["frost_flag"])
 
     add_volatility_features(df)
     add_price_trend_features(df, "coffee_c", "coffee")
@@ -314,20 +407,29 @@ def build_feature_dataset() -> tuple[pd.DataFrame, list[str]]:
 
     if "drought_index" in df.columns:
         add_lags(df, "drought_index", [1, 5, 20])
+        if "drought_flag" in df.columns:
+            add_lags(df, "drought_flag", [1, 5, 20])
 
     if "frost_flag" in df.columns:
-        df["frost_flag"] = safe_numeric(df["frost_flag"]).fillna(0.0)
         add_lags(df, "frost_flag", [1, 5, 20])
+        df["frost_rolling_7"] = safe_numeric(df["frost_flag"]).rolling(7).sum()
+        df["frost_rolling_30"] = safe_numeric(df["frost_flag"]).rolling(30).sum()
 
     for horizon in [1, 5, 20]:
         df[f"coffee_target_log_return_{horizon}d"] = cumulative_target(df["coffee_c_log_return"], horizon)
 
+    df = df.sort_values("Date").drop_duplicates(subset=["Date"], keep="last").reset_index(drop=True)
     df.to_csv(OUTPUT_FILE, index=False)
     return df, missing_optional_messages
 
 
 def main() -> None:
     print("Building enriched feature dataset...")
+    print(f"Using market inputs from: {LOGDATA_DIR}")
+    print(f"Using climate candidates: {[str(p) for p in CLIMATE_CANDIDATES]}")
+    print(f"Using drought candidates: {[str(p) for p in DROUGHT_CANDIDATES]}")
+    print(f"Using frost candidates: {[str(p) for p in FROST_CANDIDATES]}")
+
     df, missing_messages = build_feature_dataset()
 
     print(f"\nSaved: {OUTPUT_FILE}")
@@ -340,28 +442,17 @@ def main() -> None:
     print("- rainfall_rolling_7")
     print("- rainfall_rolling_30")
 
+    print("\nOptional event handling:")
+    print("- ENSO is cleaned and copied to logdata/enso.csv when found")
+    print("- Drought accepts drought_index / drought_flag / severity / single value column")
+    print("- Frost accepts frost_flag / frost / freeze_flag / event_flag / single value column")
+
     if missing_messages:
-        print("\nMissing optional external data:")
+        print("\nOptional files not used:")
         for msg in missing_messages:
             print(f"- {msg}")
-    else:
-        print("\nAll optional external files were found.")
 
-    preview_cols = [c for c in [
-        "Date",
-        "coffee_c",
-        "coffee_c_log_return",
-        "tavg",
-        "trange",
-        "rainfall_rolling_7",
-        "enso_index",
-        "drought_index",
-        "frost_flag",
-        "coffee_target_log_return_5d",
-    ] if c in df.columns]
-
-    print("\nTop columns preview:")
-    print(df[preview_cols].tail(10).to_string(index=False))
+    print("\nDone.")
 
 
 if __name__ == "__main__":
