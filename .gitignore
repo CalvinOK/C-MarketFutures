@@ -1,3 +1,6 @@
 .env
 old/*.nc
+try1/
+data/
 data/inventory data/
+.cache/
