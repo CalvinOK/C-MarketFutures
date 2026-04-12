@@ -92,12 +92,27 @@ def normalize_date_column(df: pd.DataFrame, date_col: str = "Date") -> pd.DataFr
 
 
 def standardize_date_name(df: pd.DataFrame) -> tuple[pd.DataFrame, str]:
-    for candidate in ["Date", "date", "DATE", "friday_week", "timestamp"]:
+    """
+    Find a recognized date column, rename it to 'Date', normalize it,
+    and return the cleaned dataframe plus the final date column name.
+    """
+    date_candidates = [
+        "Date",
+        "date",
+        "DATE",
+        "report_date",
+        "friday_week",
+        "timestamp",
+    ]
+
+    for candidate in date_candidates:
         if candidate in df.columns:
             out = df.copy()
             if candidate != "Date":
                 out = out.rename(columns={candidate: "Date"})
-            return normalize_date_column(out, "Date"), "Date"
+            out = normalize_date_column(out, "Date")
+            return out, "Date"
+
     raise ValueError(f"Could not find a date column in columns={list(df.columns)}")
 
 
@@ -217,51 +232,114 @@ def load_binary_event_file(candidates: list[Path], value_col_name: str, flag_col
 
 
 def load_inventory_file() -> pd.DataFrame | None:
+    """
+    Load and standardize inventory data.
+
+    Supports:
+    - long format reports with columns like:
+      report_date, section, country, warehouse, bags, source_file
+    - already wide inventory files with certified / transition / total bag columns
+    """
     path = first_existing(INVENTORY_CANDIDATES)
     if path is None:
         return None
+
     df = pd.read_csv(path)
+
+    # Standardize date column first.
     df, _ = standardize_date_name(df)
+
+    # Clean non-date column names.
     df.columns = ["Date" if c == "Date" else clean_name(c) for c in df.columns]
 
-    if "report_date" in df.columns and "Date" not in df.columns:
-        df = df.rename(columns={"report_date": "Date"})
-        df = normalize_date_column(df, "Date")
-
-    # Aggregate long format inventory reports if needed.
+    # Handle long-form inventory reports.
     if {"section", "bags"}.issubset(df.columns):
         section = df["section"].astype(str).str.upper().str.strip()
         bags = safe_numeric(df["bags"])
-        tmp = pd.DataFrame({"Date": df["Date"], "section": section, "bags": bags})
-        cert = tmp.loc[tmp["section"].str.contains("TOTAL BAGS CERTIFIED", na=False)].groupby("Date", as_index=False)["bags"].sum()
-        trans = tmp.loc[tmp["section"].str.contains("TRANSITION BAGS CERTIFIED", na=False)].groupby("Date", as_index=False)["bags"].sum()
-        out = cert.rename(columns={"bags": "inventory_certified_bags"})
-        out = out.merge(trans.rename(columns={"bags": "inventory_transition_bags"}), on="Date", how="outer")
-    else:
-        rename = {}
-        for candidate in df.columns:
-            if candidate in {"certified_bags", "inventory_certified_bags", "total_bags_certified"}:
-                rename[candidate] = "inventory_certified_bags"
-            elif candidate in {"transition_bags", "inventory_transition_bags", "transition_bags_certified"}:
-                rename[candidate] = "inventory_transition_bags"
-            elif candidate in {"total_bags", "inventory_total_bags"}:
-                rename[candidate] = "inventory_total_bags"
-        out = df.rename(columns=rename)
 
-    for col in [c for c in ["inventory_certified_bags", "inventory_transition_bags", "inventory_total_bags"] if c in out.columns]:
+        tmp = pd.DataFrame(
+            {
+                "Date": df["Date"],
+                "section": section,
+                "bags": bags,
+            }
+        )
+
+        cert = (
+            tmp.loc[tmp["section"].str.contains("TOTAL BAGS CERTIFIED", na=False)]
+            .groupby("Date", as_index=False)["bags"]
+            .sum()
+            .rename(columns={"bags": "inventory_certified_bags"})
+        )
+
+        trans = (
+            tmp.loc[tmp["section"].str.contains("TRANSITION BAGS CERTIFIED", na=False)]
+            .groupby("Date", as_index=False)["bags"]
+            .sum()
+            .rename(columns={"bags": "inventory_transition_bags"})
+        )
+
+        out = cert.merge(trans, on="Date", how="outer")
+
+    else:
+        rename_map = {}
+        for col in df.columns:
+            if col in {"certified_bags", "inventory_certified_bags", "total_bags_certified"}:
+                rename_map[col] = "inventory_certified_bags"
+            elif col in {"transition_bags", "inventory_transition_bags", "transition_bags_certified"}:
+                rename_map[col] = "inventory_transition_bags"
+            elif col in {"total_bags", "inventory_total_bags"}:
+                rename_map[col] = "inventory_total_bags"
+
+        out = df.rename(columns=rename_map).copy()
+
+    # Convert expected numeric columns.
+    numeric_cols = [
+        c
+        for c in [
+            "inventory_certified_bags",
+            "inventory_transition_bags",
+            "inventory_total_bags",
+        ]
+        if c in out.columns
+    ]
+    for col in numeric_cols:
         out[col] = safe_numeric(out[col])
 
+    # Build total if not already provided.
     if "inventory_total_bags" not in out.columns:
         cert = out.get("inventory_certified_bags", pd.Series(np.nan, index=out.index))
-        trans = out.get("inventory_transition_bags", pd.Series(0.0, index=out.index)).fillna(0.0)
+        trans = out.get(
+            "inventory_transition_bags",
+            pd.Series(0.0, index=out.index),
+        ).fillna(0.0)
         out["inventory_total_bags"] = cert + trans
 
-    out["inventory_available_flag"] = out[[c for c in ["inventory_certified_bags", "inventory_total_bags"] if c in out.columns]].notna().any(axis=1).astype(float)
-    keep = [c for c in ["Date", "inventory_certified_bags", "inventory_transition_bags", "inventory_total_bags", "inventory_available_flag"] if c in out.columns]
-    out = out[keep].copy()
+    # Availability flag.
+    availability_inputs = [
+        c
+        for c in ["inventory_certified_bags", "inventory_total_bags"]
+        if c in out.columns
+    ]
+    out["inventory_available_flag"] = (
+        out[availability_inputs].notna().any(axis=1).astype(float)
+    )
+
+    keep_cols = [
+        c
+        for c in [
+            "Date",
+            "inventory_certified_bags",
+            "inventory_transition_bags",
+            "inventory_total_bags",
+            "inventory_available_flag",
+        ]
+        if c in out.columns
+    ]
+
+    out = out[keep_cols].copy()
     out = normalize_date_column(out, "Date")
     return out
-
 
 # ---------------------------------------------------------------------------
 # Weekly API/model-panel loader
