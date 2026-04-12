@@ -4,3 +4,5 @@ try2/
 .cache/
 web/node_modules/
 web/.next/
+data/
+logdata/
