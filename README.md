@@ -1,82 +1,48 @@
-# Coffee XGBoost Forecast
+# Coffee spot price projection with XGBoost
 
-This project reads a local `CoffeeCData.csv`, adjusts prices for inflation, augments the series with API-updated external factors, trains an XGBoost regressor, and produces a 5-year monthly forecast plus a black/blue chart.
+This script is designed for the weekly output files created by your uploaded data-prep script, especially:
 
-## What it uses
+- `kc_weekly_with_fx_cot_weather_overlap_only.csv`
+- `kc_weekly_with_fx_cot_weather.csv`
+- `kc_weekly_with_fx_cot_overlap_only.csv`
+- `kc_weekly_with_fx.csv`
+- `kc_continuous_weekly_friday.csv`
 
-- Your local `CoffeeCData.csv` for the core coffee price history.
-- Alpha Vantage for:
-  - `CPI` (inflation adjustment)
-  - `COFFEE` (global coffee benchmark)
-  - `SUGAR`, `WHEAT`, `COTTON` (correlated crop/soft commodity signals)
-  - `WTI` (energy / transport-cost proxy)
-  - `FX_MONTHLY` for `BRL/USD` and `COP/USD` (important producer-currency proxies)
-- Open-Meteo Historical Weather API for lagged weather.
-- Open-Meteo Climate API for future climate-aware weather inputs.
+## What it does
 
-## Expected CSV columns
-
-- `Date`
-- `Price`
-- `Open`
-- `High`
-- `Low`
-- `Vol.`
-- `Change %`
-
-## Install
-
-```bash
-python -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-```
-
-## API key
-
-Set an Alpha Vantage API key as either an environment variable or in a local `.env` file next to `coffee_forecast.py`.
-
-Examples:
-
-```bash
-export ALPHAVANTAGE_API_KEY=your_key_here
-```
-
-`.env` format:
-
-```bash
-ALPHAVANTAGE_API_KEY=your_key_here
-```
-
-Windows PowerShell:
-
-```powershell
-$env:ALPHAVANTAGE_API_KEY="your_key_here"
-```
+- infers the weekly date column
+- infers the coffee price target column
+- builds lag, rolling, return, and calendar features
+- trains an `XGBRegressor`
+- performs a walk-forward backtest to estimate forecast error
+- recursively projects the next 26 weeks (about 6 months)
+- saves a chart with historical data plus the projection band
 
 ## Run
 
 ```bash
-python coffee_forecast.py --csv CoffeeCData.csv --outdir outputs
+python coffee_xgboost_projection.py --input data/kc_weekly_with_fx_cot_weather_overlap_only.csv --outdir outputs
 ```
 
-Optional:
+## Optional arguments
 
 ```bash
-python coffee_forecast.py --csv CoffeeCData.csv --outdir outputs --horizon-months 60 --climate-model MRI_AGCM3_2_S
+python coffee_xgboost_projection.py \
+  --input data/kc_weekly_with_fx_cot_weather_overlap_only.csv \
+  --target settlement \
+  --date-col friday_week \
+  --horizon-weeks 26 \
+  --history-weeks 104 \
+  --outdir outputs
 ```
 
 ## Outputs
 
-- `outputs/coffee_model_dataset.csv`
-- `outputs/coffee_forecast_5y.csv`
-- `outputs/feature_importance.csv`
-- `outputs/model_metrics.json`
-- `outputs/coffee_history_forecast.png`
+- `coffee_spot_projection_6m.csv`
+- `coffee_spot_backtest.csv`
+- `coffee_spot_projection_6m.png`
+- `coffee_xgb_feature_importance.csv`
 
-## Notes
+## Assumptions
 
-- Forecasting is done at **monthly** frequency because the external macro / crop APIs are monthly.
-- If your raw CSV is daily, the script resamples it to monthly open-high-low-close-volume style features.
-- Future weather is taken from Open-Meteo climate-model data; future market variables such as CPI, sugar, wheat, cotton, WTI, and FX are seasonally trend-projected from recent history.
-- You can swap regions, weights, or add more producer areas in `data_sources.py`.
+For future exogenous variables such as FX, COT, and weather, the script carries the latest observed values forward unless you supply a richer future scenario file. That makes this a baseline conditional projection, not a structural market forecast.

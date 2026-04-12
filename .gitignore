@@ -1,6 +1,6 @@
 .env
-old/*.nc
 try1/
-data/
-data/inventory data/
+try2/
 .cache/
+web/node_modules/
+web/.next/
