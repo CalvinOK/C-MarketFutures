@@ -1,3 +1,5 @@
+import Image from "next/image";
+
 export default function CoffeeFuturesSite() {
   const contracts = [
     { month: "May 2026", symbol: "KCK26", price: "193.40", change: "+2.15", pct: "+1.12%", volume: "28.4K", openInterest: "112.9K" },
@@ -26,7 +28,7 @@ export default function CoffeeFuturesSite() {
     .join(" ");
 
   const stats = [
-    { label: "Front", value: "193.40", sub: "US¢/lb" },
+    { label: "Front", value: "193.40", sub: "US¢/lb", featured: true },
     { label: "Shape", value: "Contango", sub: "Deferred > spot" },
     { label: "Vol", value: "73.6K", sub: "Shown" },
     { label: "OI", value: "369.4K", sub: "Shown" },
@@ -38,6 +40,19 @@ export default function CoffeeFuturesSite() {
         <section className="space-y-4 rounded-[28px] border border-[var(--line)] bg-[var(--panel)] p-4 shadow-[0_24px_80px_rgba(32,44,102,0.08)] sm:p-5">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div className="max-w-2xl">
+              <div className="mb-4 flex items-center gap-4">
+                <div className="flex h-16 items-center rounded-2xl border border-[var(--line)] bg-white px-4 shadow-[0_8px_24px_rgba(32,44,102,0.06)] sm:h-20 sm:px-5">
+                  <Image
+                    src="/bond-logo-navy.png"
+                    alt="Bond Consulting"
+                    width={320}
+                    height={96}
+                    className="h-10 w-auto object-contain sm:h-12"
+                    priority
+                  />
+                </div>
+              </div>
+
               <div className="inline-flex rounded-full border border-[var(--bond-blue)]/15 bg-[var(--bond-blue)]/8 px-2.5 py-1 text-[11px] font-semibold tracking-wide text-[var(--bond-blue)]">
                 ICE Arabica Coffee Futures
               </div>
@@ -47,31 +62,6 @@ export default function CoffeeFuturesSite() {
               <p className="mt-2 max-w-lg text-sm leading-6 text-[var(--muted)]">
                 A tighter dashboard for curve shape, key contracts, and market context.
               </p>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2 sm:w-[320px]">
-              {stats.map((stat, index) => (
-                <div
-                  key={stat.label}
-                  className={`rounded-2xl border p-3 ${
-                    index === 0
-                      ? "border-[var(--bond-blue)]/20 bg-[var(--bond-blue)] text-white"
-                      : "border-[var(--line)] bg-white"
-                  }`}
-                >
-                  <div
-                    className={`text-[10px] uppercase tracking-[0.18em] ${
-                      index === 0 ? "text-white/70" : "text-[var(--muted)]"
-                    }`}
-                  >
-                    {stat.label}
-                  </div>
-                  <div className={`mt-1 text-lg font-semibold ${index === 0 ? "text-white" : "text-[var(--ink)]"}`}>
-                    {stat.value}
-                  </div>
-                  <div className={`text-xs ${index === 0 ? "text-white/70" : "text-[var(--muted)]"}`}>{stat.sub}</div>
-                </div>
-              ))}
             </div>
           </div>
 
@@ -215,27 +205,35 @@ export default function CoffeeFuturesSite() {
             <div className="rounded-3xl border border-[var(--line)] bg-[linear-gradient(180deg,rgba(123,159,188,0.18),rgba(197,174,203,0.14))] p-4">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <h2 className="text-base font-medium text-[var(--bond-blue)]">Market color</h2>
-                  <p className="text-xs text-[var(--muted)]">Soft accents for tags and surfaces</p>
+                  <h2 className="text-base font-medium text-[var(--bond-blue)]">Market snapshot</h2>
+                  <p className="text-xs text-[var(--muted)]">Core futures metrics at a glance</p>
                 </div>
                 <div className="rounded-full border border-[var(--line-strong)] bg-white px-3 py-1 text-xs font-medium text-[var(--bond-blue)]">
-                  Refined palette
+                  Live summary
                 </div>
               </div>
 
               <div className="mt-4 grid grid-cols-2 gap-3">
-                {[
-                  ["Bond Blue", "var(--bond-blue)"],
-                  ["Gameday Blue", "var(--gameday-blue)"],
-                  ["Baby Blue", "var(--what-it-do-blue)"],
-                  ["Slate Gray", "var(--gray)"],
-                  ["Prasad Purple", "var(--prasad-purple)"],
-                  ["Mist", "var(--mist)"],
-                ].map(([label, variable]) => (
-                  <div key={label} className="rounded-2xl border border-[var(--line)] bg-white/70 p-3 backdrop-blur-sm">
-                    <div className="h-10 rounded-xl border border-black/5" style={{ backgroundColor: variable }} />
-                    <div className="mt-2 text-xs font-medium text-[var(--bond-blue)]">{label}</div>
-                    <div className="text-[11px] text-[var(--muted)]">Accent / surface</div>
+                {stats.map((stat) => (
+                  <div
+                    key={stat.label}
+                    className={`rounded-2xl border p-4 ${
+                      stat.featured
+                        ? "border-[var(--bond-blue)]/20 bg-[var(--bond-blue)] text-white shadow-[0_14px_30px_rgba(32,44,102,0.14)]"
+                        : "border-[var(--line)] bg-white/72 backdrop-blur-sm"
+                    }`}
+                  >
+                    <div
+                      className={`text-[10px] uppercase tracking-[0.18em] ${
+                        stat.featured ? "text-white/70" : "text-[var(--muted)]"
+                      }`}
+                    >
+                      {stat.label}
+                    </div>
+                    <div className={`mt-2 text-2xl font-semibold tracking-tight ${stat.featured ? "text-white" : "text-[var(--bond-blue)]"}`}>
+                      {stat.value}
+                    </div>
+                    <div className={`mt-1 text-xs ${stat.featured ? "text-white/70" : "text-[var(--muted)]"}`}>{stat.sub}</div>
                   </div>
                 ))}
               </div>
@@ -246,4 +244,3 @@ export default function CoffeeFuturesSite() {
     </div>
   );
 }
-
