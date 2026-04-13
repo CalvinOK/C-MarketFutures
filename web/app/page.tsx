@@ -26,6 +26,93 @@ type ForecastBandRow = {
   lower: number;
 };
 
+// ─── Live API types ───────────────────────────────────────────────────────────
+
+type ContractApiRow = {
+  symbol: string;
+  expiry_date: string;
+  last_price: number;
+  price_change: number;
+  price_change_pct: number;
+  volume: number;
+  open_interest: number;
+  captured_at: string;
+};
+
+type NewsApiItem = {
+  category: string;
+  text: string;
+  source: string;
+  url: string;
+  timestamp: string;
+};
+
+type SucafinaBriefApiItem = {
+  headline: string;
+  source_report: string;
+  report_url: string;
+  market_bias: string;
+  key_takeaways: string[];
+};
+
+type TodayFeedItem =
+  | {
+      kind: "news";
+      title: string;
+      source: string;
+      date: string | null;
+      url: string | null;
+    }
+  | {
+      kind: "sucafina";
+      title: string;
+      source: string;
+      date: string | null;
+      url: string | null;
+      summary: string;
+    };
+
+type SnapshotData = {
+  frontPrice: number;
+  curveShape: "Contango" | "Backwardation";
+  totalVolume: number;
+  totalOpenInterest: number;
+  frontSymbol: string;
+  asOf: string;
+};
+
+// ─── Display helpers ──────────────────────────────────────────────────────────
+
+const MONTH_CODE_MAP: Record<string, string> = {
+  F: "Jan", G: "Feb", H: "Mar", J: "Apr", K: "May", M: "Jun",
+  N: "Jul", Q: "Aug", U: "Sep", V: "Oct", X: "Nov", Z: "Dec",
+};
+
+function symbolToMonth(symbol: string): string {
+  // KCK26 → "May 2026"
+  const code = symbol[2];
+  const yearSuffix = symbol.slice(4);
+  return `${MONTH_CODE_MAP[code] ?? code} 20${yearSuffix}`;
+}
+
+function formatK(n: number): string {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
+  if (n >= 1_000) return (n / 1_000).toFixed(1) + "K";
+  return n.toString();
+}
+
+function formatNewsDate(timestamp: string): string | null {
+  if (!timestamp) return null;
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return null;
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(date);
+}
+
 type ChartPoint = {
   date: Date;
   x: number;
@@ -185,7 +272,7 @@ export default function CoffeeFuturesSite() {
   const historyCsvPath = "/data/coffee_xgb_proj4_history.csv";
   const forecastCsvPath = "/data/coffee_xgb_proj4_rolling_path.csv";
 
-  const contracts = [
+  const staticContracts = [
     {
       month: "May 2026",
       symbol: "KCK26",
@@ -224,25 +311,35 @@ export default function CoffeeFuturesSite() {
     },
   ];
 
-  const headlines = [
+  const staticHeadlines = [
     {
       title: "Brazil weather risk supports nearby strength",
-      source: "Market brief",
-      time: "2h",
+      source: "Market Brief",
+      date: null,
     },
     {
       title: "Certified stocks remain in focus",
-      source: "Commodities desk",
-      time: "5h",
+      source: "Commodities Desk",
+      date: null,
     },
     {
       title: "Roaster hedging ticks up into summer",
-      source: "Trade note",
-      time: "Today",
+      source: "Trade Note",
+      date: null,
     },
   ];
 
-  const stats = [
+  const staticSucafinaSummary: TodayFeedItem = {
+    kind: "sucafina",
+    title: "Sucafina market report",
+    source: "Sucafina Market Report",
+    date: null,
+    url: "https://sucafina.com/na/lp/market-report",
+    summary:
+      "The latest Sucafina report points to a bearish tilt, with nearby support around 290 USc/lb and downside risk toward 275.",
+  };
+
+  const staticStats = [
     { label: "Front", value: "193.40", sub: "US¢/lb", featured: true },
     { label: "Shape", value: "Contango", sub: "Deferred > spot" },
     { label: "Vol", value: "73.6K", sub: "Shown" },
@@ -255,6 +352,13 @@ export default function CoffeeFuturesSite() {
   const [isLoading, setIsLoading] = useState(true);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const [hoveredHistoryIndex, setHoveredHistoryIndex] = useState<number | null>(null);
+
+  // Live data from backend API
+  const [liveContracts, setLiveContracts] = useState<ContractApiRow[] | null>(null);
+  const [liveNews, setLiveNews] = useState<NewsApiItem[] | null>(null);
+  const [liveSucafinaBrief, setLiveSucafinaBrief] = useState<SucafinaBriefApiItem | null>(null);
+  const [liveSnapshot, setLiveSnapshot] = useState<SnapshotData | null>(null);
+  const [isLiveData, setIsLiveData] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -316,6 +420,140 @@ export default function CoffeeFuturesSite() {
       cancelled = true;
     };
   }, []);
+
+  // Fetch contracts / news / snapshot from static JSON files produced by data_fetch.py.
+  // Falls back silently to static data if the files are not yet generated.
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadLiveData() {
+      const [contractsRes, newsRes, snapshotRes, briefRes] = await Promise.allSettled([
+        fetch("/data/contracts.json"),
+        fetch("/data/news.json"),
+        fetch("/data/snapshot.json"),
+        fetch("/data/roaster_brief.json"),
+      ]);
+
+      if (cancelled) return;
+
+      if (contractsRes.status === "fulfilled" && contractsRes.value.ok) {
+        const data: ContractApiRow[] = await contractsRes.value.json();
+        if (Array.isArray(data) && data.length > 0) setLiveContracts(data);
+      }
+
+      if (newsRes.status === "fulfilled" && newsRes.value.ok) {
+        const data: NewsApiItem[] = await newsRes.value.json();
+        if (Array.isArray(data) && data.length > 0) setLiveNews(data);
+      }
+
+      if (snapshotRes.status === "fulfilled" && snapshotRes.value.ok) {
+        const data: SnapshotData = await snapshotRes.value.json();
+        if (data?.frontPrice) {
+          setLiveSnapshot(data);
+          setIsLiveData(true);
+        }
+      }
+
+      if (briefRes.status === "fulfilled" && briefRes.value.ok) {
+        const data: SucafinaBriefApiItem = await briefRes.value.json();
+        if (data?.headline && data?.source_report) {
+          setLiveSucafinaBrief(data);
+        }
+      }
+    }
+
+    loadLiveData();
+    // Refresh every 5 minutes to pick up newly generated files
+    const interval = setInterval(loadLiveData, 5 * 60 * 1000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, []);
+
+  // Derive display data: live when available, static otherwise
+  const displayContracts = liveContracts
+    ? liveContracts.map((c) => ({
+        month: symbolToMonth(c.symbol),
+        symbol: c.symbol,
+        price: Number(c.last_price).toFixed(2),
+        change:
+          (Number(c.price_change) >= 0 ? "+" : "") +
+          Number(c.price_change).toFixed(2),
+        pct:
+          (Number(c.price_change_pct) >= 0 ? "+" : "") +
+          (Number(c.price_change_pct) * 100).toFixed(2) +
+          "%",
+        volume: formatK(Number(c.volume)),
+        openInterest: formatK(Number(c.open_interest)),
+      }))
+    : staticContracts;
+
+  const displayHeadlines = liveNews
+    ? liveNews.map((n) => ({
+        title: n.text,
+        source: n.category,
+        date: formatNewsDate(n.timestamp),
+        url: n.url || null,
+      }))
+    : staticHeadlines.map((h) => ({ ...h, url: null }));
+
+  const sucafinaSummaryText = liveSucafinaBrief
+    ? `${liveSucafinaBrief.market_bias}. ${liveSucafinaBrief.key_takeaways[0] ?? ""}`.trim()
+    : staticSucafinaSummary.summary;
+
+  const displayTodayItems: TodayFeedItem[] = [
+    ...displayHeadlines.slice(0, 2).map((item) => ({
+      kind: "news" as const,
+      title: item.title,
+      source: item.source,
+      date: item.date,
+      url: item.url,
+    })),
+    liveSucafinaBrief
+      ? {
+          kind: "sucafina" as const,
+          title: liveSucafinaBrief.headline,
+          source: liveSucafinaBrief.source_report,
+          date: null,
+          url: liveSucafinaBrief.report_url,
+          summary: sucafinaSummaryText,
+        }
+      : staticSucafinaSummary,
+  ];
+
+  const displayStats = liveSnapshot
+    ? [
+        {
+          label: "Front",
+          value: Number(liveSnapshot.frontPrice).toFixed(2),
+          sub: "US¢/lb",
+          featured: true,
+        },
+        {
+          label: "Shape",
+          value: liveSnapshot.curveShape,
+          sub:
+            liveSnapshot.curveShape === "Contango"
+              ? "Deferred > spot"
+              : "Spot > deferred",
+          featured: false,
+        },
+        {
+          label: "Vol",
+          value: formatK(liveSnapshot.totalVolume),
+          sub: "Shown",
+          featured: false,
+        },
+        {
+          label: "OI",
+          value: formatK(liveSnapshot.totalOpenInterest),
+          sub: "Shown",
+          featured: false,
+        },
+      ]
+    : staticStats;
 
   const chart = useMemo(() => {
     const width = 920;
@@ -792,24 +1030,62 @@ export default function CoffeeFuturesSite() {
                 <span className="text-xs text-[var(--muted)]">3 notes</span>
               </div>
               <div className="space-y-2.5">
-                {headlines.map((item, index) => (
-                  <article
-                    key={item.title}
-                    className={`rounded-2xl border p-3 ${
-                      index === 0
-                        ? "border-[var(--bond-blue)]/12 bg-[var(--bond-blue)]/5"
-                        : "border-[var(--line)] bg-[var(--page-bg)]"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-3 text-[10px] uppercase tracking-[0.16em] text-[var(--muted)]">
-                      <span>{item.source}</span>
-                      <span>{item.time}</span>
-                    </div>
-                    <h3 className="mt-1.5 text-sm font-medium leading-5 text-[var(--ink)]">
-                      {item.title}
-                    </h3>
-                  </article>
-                ))}
+                {displayTodayItems.map((item, index) => {
+                  const isSucafina = item.kind === "sucafina";
+                  const inner = isSucafina ? (
+                    <>
+                      <div className="flex items-center justify-between gap-3 text-[10px] uppercase tracking-[0.16em] text-[var(--muted)]">
+                        <span>{item.source}</span>
+                        <span>Scrape summary</span>
+                      </div>
+                      <h3 className="mt-1.5 text-sm font-medium leading-5 text-[var(--ink)]">
+                        {item.title}
+                      </h3>
+                      <p className="mt-1.5 text-sm leading-5 text-[var(--muted)]">
+                        {item.summary}
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex items-center justify-between gap-3 text-[10px] uppercase tracking-[0.16em] text-[var(--muted)]">
+                        <span>{item.source}</span>
+                        {item.date ? <span>{item.date}</span> : null}
+                      </div>
+                      <h3 className="mt-1.5 text-sm font-medium leading-5 text-[var(--ink)]">
+                        {item.title}
+                      </h3>
+                    </>
+                  );
+
+                  const articleClass = isSucafina
+                    ? "rounded-2xl border border-[var(--bond-blue)]/14 bg-[var(--baby-blue)]/18 p-3"
+                    : `rounded-2xl border p-3 ${
+                        index === 0
+                          ? "border-[var(--bond-blue)]/12 bg-[var(--bond-blue)]/5"
+                          : "border-[var(--line)] bg-[var(--page-bg)]"
+                      }`;
+
+                  const href = item.url;
+
+                  return href ? (
+                    <a
+                      key={item.kind === "sucafina" ? `sucafina-${item.title}` : item.title}
+                      href={href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={`block ${articleClass} transition hover:border-[var(--bond-blue)]/30 hover:bg-[var(--baby-blue)]/20`}
+                    >
+                      {inner}
+                    </a>
+                  ) : (
+                    <article
+                      key={item.kind === "sucafina" ? `sucafina-${item.title}` : item.title}
+                      className={articleClass}
+                    >
+                      {inner}
+                    </article>
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -825,13 +1101,13 @@ export default function CoffeeFuturesSite() {
                     Compact contract cards
                   </p>
                 </div>
-                <div className="rounded-full border border-[var(--line-strong)] bg-[var(--prasad-purple)]/18 px-3 py-1 text-xs font-medium text-[var(--bond-blue)]">
-                  Delayed demo
+                <div className={`rounded-full border px-3 py-1 text-xs font-medium ${isLiveData ? "border-green-200 bg-green-50 text-green-700" : "border-[var(--line-strong)] bg-[var(--prasad-purple)]/18 text-[var(--bond-blue)]"}`}>
+                  {isLiveData ? "Live" : "Delayed demo"}
                 </div>
               </div>
 
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                {contracts.map((contract, index) => (
+                {displayContracts.map((contract, index) => (
                   <article
                     key={contract.symbol}
                     className={`rounded-2xl border p-3.5 ${
@@ -970,7 +1246,7 @@ export default function CoffeeFuturesSite() {
               </div>
 
               <div className="mt-4 grid grid-cols-2 gap-3">
-                {stats.map((stat) => (
+                {displayStats.map((stat) => (
                   <div
                     key={stat.label}
                     className={`rounded-2xl border p-4 ${
