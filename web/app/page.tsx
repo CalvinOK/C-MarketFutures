@@ -61,24 +61,76 @@ function parseHistoryCsv(csvText: string): HistoryRow[] {
 
 function parseWeeklyPathCsv(csvText: string): WeeklyPathRow[] {
   const lines = csvText.trim().split(/\r?\n/);
-  const rows = lines.slice(1);
+  if (lines.length < 2) {
+    return [];
+  }
 
-  return rows
+  const header = lines[0].split(",").map((value) => value.trim().toLowerCase());
+  const byName = (name: string) => header.indexOf(name.toLowerCase());
+  const dateIdx = Math.max(byName("date"), byName("Date"));
+  const asOfIdx = Math.max(byName("as_of_date"), byName("asofdate"));
+  const stepIdx = Math.max(byName("step_week"), byName("step"));
+  const projectedIdx = Math.max(byName("projected_price"), byName("forecast"));
+  const predictedIdx = byName("predicted_weekly_log_return");
+  const anchorIdx = byName("anchor_weekly_log_return");
+  const rawIdx = byName("raw_1w_log_return");
+
+  const rows = lines.slice(1);
+  const parsed = rows
     .map((line) => line.split(","))
-    .filter((parts) => parts.length >= 7)
-    .map((parts) => ({
-      asOfDate: parts[0],
-      stepWeek: Number(parts[1]),
-      date: parts[2],
-      predictedWeeklyLogReturn: Number(parts[3]),
-      projectedPrice: Number(parts[4]),
-      anchorWeeklyLogReturn: Number(parts[5]),
-      raw1wLogReturn: Number(parts[6]),
-    }))
+    .filter((parts) => parts.length >= 2)
+    .map((parts) => {
+      const date = dateIdx >= 0 ? parts[dateIdx] : parts[2] ?? parts[0];
+      const stepWeek =
+        stepIdx >= 0 ? Number(parts[stepIdx]) : Number(parts[1] ?? parts[4]);
+      const projectedPrice =
+        projectedIdx >= 0 ? Number(parts[projectedIdx]) : Number(parts[4]);
+
+      return {
+        asOfDate:
+          asOfIdx >= 0
+            ? parts[asOfIdx]
+            : date,
+        stepWeek,
+        date,
+        projectedPrice,
+        predictedWeeklyLogReturn:
+          predictedIdx >= 0 ? Number(parts[predictedIdx]) : Number.NaN,
+        anchorWeeklyLogReturn:
+          anchorIdx >= 0 ? Number(parts[anchorIdx]) : 0,
+        raw1wLogReturn:
+          rawIdx >= 0 ? Number(parts[rawIdx]) : 0,
+      };
+    })
     .filter(
       (row) =>
-        Number.isFinite(row.stepWeek) && Number.isFinite(row.projectedPrice),
+        Number.isFinite(row.stepWeek) &&
+        Number.isFinite(row.projectedPrice) &&
+        row.date,
     );
+
+  if (parsed.length === 0) {
+    return [];
+  }
+
+  for (let index = 0; index < parsed.length; index += 1) {
+    if (!Number.isFinite(parsed[index].predictedWeeklyLogReturn)) {
+      if (index === 0) {
+        parsed[index].predictedWeeklyLogReturn = 0;
+      } else {
+        const previous = parsed[index - 1].projectedPrice;
+        const current = parsed[index].projectedPrice;
+        parsed[index].predictedWeeklyLogReturn =
+          previous > 0 && current > 0 ? Math.log(current / previous) : 0;
+      }
+    }
+  }
+
+  const inferredAsOfDate = parsed[0].asOfDate || parsed[0].date;
+  return parsed.map((row) => ({
+    ...row,
+    asOfDate: row.asOfDate || inferredAsOfDate,
+  }));
 }
 
 function stddev(values: number[]): number {
@@ -129,8 +181,14 @@ function buildYAxisTicks(minValue: number, maxValue: number, count = 5): number[
 }
 
 export default function CoffeeFuturesSite() {
-  const historyCsvPath = "/data/coffee_xgb_proj4_history.csv";
-  const forecastCsvPath = "/data/coffee_xgb_proj4_rolling_path.csv";
+  const historyCsvCandidates = [
+    "/data/coffee_xgb_proj4_history.csv",
+    "/data/coffee_spot_backtest.csv",
+  ];
+  const forecastCsvCandidates = [
+    "/data/coffee_xgb_proj4_rolling_path.csv",
+    "/data/coffee_spot_projection_6m.csv",
+  ];
 
   const contracts = [
     {
@@ -206,24 +264,26 @@ export default function CoffeeFuturesSite() {
   useEffect(() => {
     let cancelled = false;
 
+    async function fetchFirstAvailable(paths: string[], label: string) {
+      const statuses: string[] = [];
+
+      for (const path of paths) {
+        const response = await fetch(path);
+        if (response.ok) {
+          return response;
+        }
+        statuses.push(`${path} (${response.status})`);
+      }
+
+      throw new Error(`Failed to load ${label} data: ${statuses.join(", ")}`);
+    }
+
     async function loadChartData() {
       try {
         const [historyResponse, pathResponse] = await Promise.all([
-          fetch(historyCsvPath),
-          fetch(forecastCsvPath),
+          fetchFirstAvailable(historyCsvCandidates, "history"),
+          fetchFirstAvailable(forecastCsvCandidates, "forecast"),
         ]);
-
-        if (!historyResponse.ok) {
-          throw new Error(
-            `Failed to load history data (${historyResponse.status})`,
-          );
-        }
-
-        if (!pathResponse.ok) {
-          throw new Error(
-            `Failed to load forecast data (${pathResponse.status})`,
-          );
-        }
 
         const [historyText, pathText] = await Promise.all([
           historyResponse.text(),
