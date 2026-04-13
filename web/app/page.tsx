@@ -1,31 +1,193 @@
+"use client";
+
 import Image from "next/image";
+import { useEffect, useMemo, useState } from "react";
+
+type HistoryRow = {
+  date: string;
+  price: number;
+};
+
+type WeeklyPathRow = {
+  asOfDate: string;
+  stepWeek: number;
+  date: string;
+  predictedWeeklyLogReturn: number;
+  projectedPrice: number;
+  anchorWeeklyLogReturn: number;
+  raw1wLogReturn: number;
+};
+
+type ForecastBandRow = {
+  date: Date;
+  projectedPrice: number;
+  upper: number;
+  lower: number;
+};
+
+type ChartPoint = {
+  date: Date;
+  x: number;
+  y: number;
+  label: string;
+  projectedPrice: number;
+};
+
+type MonthTick = {
+  key: string;
+  x: number;
+  label: string;
+};
+
+type YAxisTick = {
+  value: number;
+  y: number;
+  label: string;
+};
+
+function parseHistoryCsv(csvText: string): HistoryRow[] {
+  const lines = csvText.trim().split(/\r?\n/);
+  const rows = lines.slice(1);
+
+  return rows
+    .map((line) => line.split(","))
+    .filter((parts) => parts.length >= 2)
+    .map((parts) => ({
+      date: parts[0],
+      price: Number(parts[1]),
+    }))
+    .filter((row) => Number.isFinite(row.price));
+}
+
+function parseWeeklyPathCsv(csvText: string): WeeklyPathRow[] {
+  const lines = csvText.trim().split(/\r?\n/);
+  const rows = lines.slice(1);
+
+  return rows
+    .map((line) => line.split(","))
+    .filter((parts) => parts.length >= 7)
+    .map((parts) => ({
+      asOfDate: parts[0],
+      stepWeek: Number(parts[1]),
+      date: parts[2],
+      predictedWeeklyLogReturn: Number(parts[3]),
+      projectedPrice: Number(parts[4]),
+      anchorWeeklyLogReturn: Number(parts[5]),
+      raw1wLogReturn: Number(parts[6]),
+    }))
+    .filter(
+      (row) =>
+        Number.isFinite(row.stepWeek) && Number.isFinite(row.projectedPrice),
+    );
+}
+
+function stddev(values: number[]): number {
+  const finiteValues = values.filter((value) => Number.isFinite(value));
+
+  if (finiteValues.length < 2) {
+    return 0.03;
+  }
+
+  const mean =
+    finiteValues.reduce((sum, value) => sum + value, 0) / finiteValues.length;
+
+  const variance =
+    finiteValues.reduce((sum, value) => sum + (value - mean) ** 2, 0) /
+    (finiteValues.length - 1);
+
+  return Math.sqrt(Math.max(variance, 0));
+}
+
+function buildPolyline(points: ChartPoint[]): string {
+  return points.map((point) => `${point.x},${point.y}`).join(" ");
+}
+
+function niceStep(rawStep: number): number {
+  if (rawStep <= 0) return 1;
+
+  const magnitude = 10 ** Math.floor(Math.log10(rawStep));
+  const residual = rawStep / magnitude;
+
+  if (residual <= 1) return 1 * magnitude;
+  if (residual <= 2) return 2 * magnitude;
+  if (residual <= 5) return 5 * magnitude;
+  return 10 * magnitude;
+}
+
+function buildYAxisTicks(minValue: number, maxValue: number, count = 5): number[] {
+  const range = maxValue - minValue || 1;
+  const step = niceStep(range / (count - 1));
+  const start = Math.floor(minValue / step) * step;
+  const end = Math.ceil(maxValue / step) * step;
+
+  const ticks: number[] = [];
+  for (let value = start; value <= end + step * 0.5; value += step) {
+    ticks.push(Number(value.toFixed(4)));
+  }
+
+  return ticks;
+}
 
 export default function CoffeeFuturesSite() {
+  const historyCsvPath = "/data/coffee_xgb_proj4_history.csv";
+  const forecastCsvPath = "/data/coffee_xgb_proj4_rolling_path.csv";
+
   const contracts = [
-    { month: "May 2026", symbol: "KCK26", price: "193.40", change: "+2.15", pct: "+1.12%", volume: "28.4K", openInterest: "112.9K" },
-    { month: "Jul 2026", symbol: "KCN26", price: "196.10", change: "+1.80", pct: "+0.93%", volume: "19.2K", openInterest: "97.6K" },
-    { month: "Sep 2026", symbol: "KCU26", price: "198.75", change: "+1.55", pct: "+0.79%", volume: "14.9K", openInterest: "85.1K" },
-    { month: "Dec 2026", symbol: "KCZ26", price: "201.90", change: "+1.25", pct: "+0.62%", volume: "11.1K", openInterest: "73.9K" },
+    {
+      month: "May 2026",
+      symbol: "KCK26",
+      price: "193.40",
+      change: "+2.15",
+      pct: "+1.12%",
+      volume: "28.4K",
+      openInterest: "112.9K",
+    },
+    {
+      month: "Jul 2026",
+      symbol: "KCN26",
+      price: "196.10",
+      change: "+1.80",
+      pct: "+0.93%",
+      volume: "19.2K",
+      openInterest: "97.6K",
+    },
+    {
+      month: "Sep 2026",
+      symbol: "KCU26",
+      price: "198.75",
+      change: "+1.55",
+      pct: "+0.79%",
+      volume: "14.9K",
+      openInterest: "85.1K",
+    },
+    {
+      month: "Dec 2026",
+      symbol: "KCZ26",
+      price: "201.90",
+      change: "+1.25",
+      pct: "+0.62%",
+      volume: "11.1K",
+      openInterest: "73.9K",
+    },
   ];
 
   const headlines = [
-    { title: "Brazil weather risk supports nearby strength", source: "Market brief", time: "2h" },
-    { title: "Certified stocks remain in focus", source: "Commodities desk", time: "5h" },
-    { title: "Roaster hedging ticks up into summer", source: "Trade note", time: "Today" },
+    {
+      title: "Brazil weather risk supports nearby strength",
+      source: "Market brief",
+      time: "2h",
+    },
+    {
+      title: "Certified stocks remain in focus",
+      source: "Commodities desk",
+      time: "5h",
+    },
+    {
+      title: "Roaster hedging ticks up into summer",
+      source: "Trade note",
+      time: "Today",
+    },
   ];
-
-  const curve = [193.4, 196.1, 198.75, 201.9];
-  const min = Math.min(...curve);
-  const max = Math.max(...curve);
-
-  const points = curve
-    .map((value, index) => {
-      const x = 28 + index * 96;
-      const normalized = (value - min) / (max - min || 1);
-      const y = 104 - normalized * 44;
-      return `${x},${y}`;
-    })
-    .join(" ");
 
   const stats = [
     { label: "Front", value: "193.40", sub: "US¢/lb", featured: true },
@@ -33,6 +195,271 @@ export default function CoffeeFuturesSite() {
     { label: "Vol", value: "73.6K", sub: "Shown" },
     { label: "OI", value: "369.4K", sub: "Shown" },
   ];
+
+  const [history, setHistory] = useState<HistoryRow[]>([]);
+  const [forecastPath, setForecastPath] = useState<WeeklyPathRow[]>([]);
+  const [dataError, setDataError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+  const [hoveredHistoryIndex, setHoveredHistoryIndex] = useState<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadChartData() {
+      try {
+        const [historyResponse, pathResponse] = await Promise.all([
+          fetch(historyCsvPath),
+          fetch(forecastCsvPath),
+        ]);
+
+        if (!historyResponse.ok) {
+          throw new Error(
+            `Failed to load history data (${historyResponse.status})`,
+          );
+        }
+
+        if (!pathResponse.ok) {
+          throw new Error(
+            `Failed to load forecast data (${pathResponse.status})`,
+          );
+        }
+
+        const [historyText, pathText] = await Promise.all([
+          historyResponse.text(),
+          pathResponse.text(),
+        ]);
+
+        const historyRows = parseHistoryCsv(historyText);
+        const forecastRows = parseWeeklyPathCsv(pathText);
+
+        if (!cancelled) {
+          setHistory(historyRows);
+          setForecastPath(forecastRows);
+          setDataError(
+            historyRows.length > 0 && forecastRows.length > 0
+              ? null
+              : "One or both public data files were empty.",
+          );
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setDataError(
+            error instanceof Error
+              ? error.message
+              : "Failed to load chart data.",
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      }
+    }
+
+    loadChartData();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const chart = useMemo(() => {
+    const width = 920;
+    const height = 360;
+
+    const left = 72;
+    const right = 18;
+    const top = 14;
+    const bottom = 52;
+
+    if (history.length === 0 || forecastPath.length === 0) {
+      return null;
+    }
+
+    const historyDates = history.map((row) => new Date(row.date));
+    const forecastDates = forecastPath.map((row) => new Date(row.date));
+    const allDates = [...historyDates, ...forecastDates];
+
+    const minTime = Math.min(...allDates.map((date) => date.getTime()));
+    const maxTime = Math.max(...allDates.map((date) => date.getTime()));
+
+    const msPerWeek = 7 * 24 * 60 * 60 * 1000;
+    const asOfDate = new Date(forecastPath[0].asOfDate);
+    const currentPrice = history[history.length - 1].price;
+    const sigmaWeekly = stddev(
+      forecastPath.map((row) => row.predictedWeeklyLogReturn),
+    );
+
+    const forecastBands: ForecastBandRow[] = forecastPath.map((row) => {
+      const forecastDate = new Date(row.date);
+      const weeksElapsed = Math.max(
+        (forecastDate.getTime() - asOfDate.getTime()) / msPerWeek,
+        0,
+      );
+      const coneHalf =
+        currentPrice * (Math.exp(sigmaWeekly * Math.sqrt(weeksElapsed)) - 1);
+
+      return {
+        date: forecastDate,
+        projectedPrice: row.projectedPrice,
+        upper: row.projectedPrice + coneHalf,
+        lower: Math.max(row.projectedPrice - coneHalf, 1),
+      };
+    });
+
+    const priceValues = [
+      ...history.map((row) => row.price),
+      ...forecastPath.map((row) => row.projectedPrice),
+      ...forecastBands.flatMap((band) => [band.upper, band.lower]),
+    ];
+
+    const minPrice = Math.min(...priceValues);
+    const maxPrice = Math.max(...priceValues);
+    const padding = (maxPrice - minPrice || 1) * 0.08;
+    const paddedMin = minPrice - padding;
+    const paddedMax = maxPrice + padding;
+    const priceRange = paddedMax - paddedMin || 1;
+
+    const innerWidth = width - left - right;
+    const innerHeight = height - top - bottom;
+
+    const toX = (date: Date) =>
+      left + ((date.getTime() - minTime) / (maxTime - minTime || 1)) * innerWidth;
+
+    const toY = (price: number) =>
+      top + (1 - (price - paddedMin) / priceRange) * innerHeight;
+
+    const historyPoints: ChartPoint[] = history.map((row) => {
+      const date = new Date(row.date);
+
+      return {
+        date,
+        x: toX(date),
+        y: toY(row.price),
+        label: date.toLocaleDateString("en-US", { month: "short" }),
+        projectedPrice: row.price,
+      };
+    });
+
+    const forecastPoints: ChartPoint[] = forecastPath.map((row) => {
+      const date = new Date(row.date);
+
+      return {
+        date,
+        x: toX(date),
+        y: toY(row.projectedPrice),
+        label: date.toLocaleDateString("en-US", { month: "short" }),
+        projectedPrice: row.projectedPrice,
+      };
+    });
+
+    const bandPolygon = [
+      ...forecastBands.map((band) => `${toX(band.date)},${toY(band.upper)}`),
+      ...forecastBands
+        .slice()
+        .reverse()
+        .map((band) => `${toX(band.date)},${toY(band.lower)}`),
+    ].join(" ");
+
+    const monthTicks: MonthTick[] = [];
+    let lastMonthKey = "";
+
+    allDates.forEach((date) => {
+      const key = `${date.getFullYear()}-${date.getMonth()}`;
+      if (key !== lastMonthKey) {
+        monthTicks.push({
+          key,
+          x: toX(date),
+          label: date.toLocaleDateString("en-US", { month: "short" }),
+        });
+        lastMonthKey = key;
+      }
+    });
+
+    const filteredTicks: MonthTick[] = [];
+    let lastAcceptedX = -Infinity;
+    const minimumGap = 46;
+
+    monthTicks.forEach((tick, index) => {
+      const isLast = index === monthTicks.length - 1;
+      if (tick.x - lastAcceptedX >= minimumGap || isLast) {
+        filteredTicks.push(tick);
+        lastAcceptedX = tick.x;
+      }
+    });
+
+    const yAxisValues = buildYAxisTicks(paddedMin, paddedMax, 5);
+    const yAxisTicks: YAxisTick[] = yAxisValues.map((value) => ({
+      value,
+      y: toY(value),
+      label: value.toFixed(0),
+    }));
+
+    return {
+      width,
+      height,
+      left,
+      right,
+      top,
+      bottom,
+      historyPolyline: buildPolyline(historyPoints),
+      forecastPolyline: buildPolyline(forecastPoints),
+      bandPolygon,
+      historyPoints,
+      forecastPoints,
+      monthTicks: filteredTicks,
+      yAxisTicks,
+      dividerX: historyPoints[historyPoints.length - 1].x,
+      plotBottom: height - bottom,
+      plotRight: width - right,
+    };
+  }, [history, forecastPath]);
+
+  const hoveredPoint = chart
+    ? hoveredHistoryIndex !== null
+      ? chart.historyPoints[hoveredHistoryIndex]
+      : hoveredIndex !== null
+        ? chart.forecastPoints[hoveredIndex]
+        : null
+    : null;
+
+  const chartDownloadCsv = useMemo(() => {
+    if (history.length === 0 && forecastPath.length === 0) {
+      return "";
+    }
+
+    const lines = [
+      "series,date,price,asOfDate,stepWeek,predictedWeeklyLogReturn,anchorWeeklyLogReturn,raw1wLogReturn",
+      ...history.map(
+        (row) =>
+          `history,${row.date},${row.price.toFixed(6)},,,,,`,
+      ),
+      ...forecastPath.map(
+        (row) =>
+          `forecast,${row.date},${row.projectedPrice.toFixed(6)},${row.asOfDate},${row.stepWeek},${row.predictedWeeklyLogReturn.toFixed(8)},${row.anchorWeeklyLogReturn.toFixed(8)},${row.raw1wLogReturn.toFixed(8)}`,
+      ),
+    ];
+
+    return lines.join("\n");
+  }, [history, forecastPath]);
+
+  const handleDownloadChartData = () => {
+    if (!chartDownloadCsv) {
+      return;
+    }
+
+    const blob = new Blob([chartDownloadCsv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    const timestamp = new Date().toISOString().slice(0, 10);
+    anchor.href = url;
+    anchor.download = `coffee_chart_data_${timestamp}.csv`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <div className="min-h-screen bg-[var(--page-bg)] text-[var(--ink)]">
@@ -68,46 +495,247 @@ export default function CoffeeFuturesSite() {
             <div className="rounded-3xl border border-[var(--line)] bg-[var(--baby-blue)]/25 p-4">
               <div className="mb-3 flex items-center justify-between gap-3">
                 <div>
-                  <h2 className="text-base font-medium text-[var(--bond-blue)]">Forward curve</h2>
-                  <p className="text-xs text-[var(--muted)]">Nearby ICE contracts</p>
+                  <h2 className="text-base font-medium text-[var(--bond-blue)]">
+                    Price Projection
+                  </h2>
                 </div>
-                <button className="rounded-full border border-[var(--line-strong)] bg-white px-3 py-1.5 text-xs font-medium text-[var(--bond-blue)] transition hover:bg-[var(--baby-blue)]/40">
-                  Live feed
+
+                <button
+                  onClick={handleDownloadChartData}
+                  disabled={!chartDownloadCsv}
+                  className="rounded-full border border-[var(--line-strong)] bg-white px-3 py-1.5 text-xs font-medium text-[var(--bond-blue)] transition hover:bg-[var(--baby-blue)]/40 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Download chart CSV
                 </button>
               </div>
 
-              <div className="rounded-2xl border border-[var(--line)] bg-white p-3">
-                <svg viewBox="0 0 320 128" className="h-32 w-full">
-                  {[28, 124, 220, 316].map((x) => (
-                    <line key={x} x1={x} y1="20" x2={x} y2="108" stroke="currentColor" strokeWidth="1" className="text-[var(--gray)]/60" />
-                  ))}
-                  {[32, 56, 80, 104].map((y) => (
-                    <line key={y} x1="28" y1={y} x2="316" y2={y} stroke="currentColor" strokeWidth="1" className="text-[var(--gray)]/60" />
-                  ))}
-                  <polyline fill="none" stroke="currentColor" strokeWidth="2.5" className="text-[var(--bond-blue)]" points={points} />
-                  {curve.map((value, index) => {
-                    const x = 28 + index * 96;
-                    const normalized = (value - min) / (max - min || 1);
-                    const y = 104 - normalized * 44;
-                    return (
-                      <g key={value}>
-                        <circle cx={x} cy={y} r="3.5" className="fill-[var(--bond-blue)]" />
-                        <text x={x} y={118} textAnchor="middle" className="fill-[var(--muted)] text-[9px]">
-                          {contracts[index].month.split(" ")[0]}
+              <div className="rounded-2xl border border-[var(--line)] bg-white p-2">
+                <div className="relative">
+                  {chart && hoveredPoint && (
+                    <div
+                      className="pointer-events-none absolute z-10 rounded-xl border border-[var(--bond-blue)]/15 bg-[var(--baby-blue)]/85 px-3 py-2 text-xs shadow-[0_10px_20px_rgba(123,159,188,0.18)] backdrop-blur-sm"
+                      style={{
+                        left: `${(hoveredPoint.x / chart.width) * 100}%`,
+                        top: 8,
+                        transform: "translateX(-50%)",
+                      }}
+                    >
+                      <div className="font-medium text-[var(--bond-blue)]">
+                        {hoveredPoint.date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                      </div>
+                      <div className="mt-0.5 text-[var(--muted)]">
+                        {hoveredPoint.projectedPrice.toFixed(2)} US¢/lb
+                      </div>
+                    </div>
+                  )}
+
+                  {!chart ? (
+                    <div className="flex h-[320px] items-center justify-center rounded-2xl border border-dashed border-[var(--line)] text-sm text-[var(--muted)]">
+                      {isLoading
+                        ? "Loading chart data..."
+                        : dataError ?? "No chart data available."}
+                    </div>
+                  ) : (
+                    <svg
+                      viewBox={`0 0 ${chart.width} ${chart.height}`}
+                      className="block h-auto w-full"
+                      preserveAspectRatio="xMidYMid meet"
+                    >
+                      {chart.yAxisTicks.map((tick) => (
+                        <g key={`y-${tick.value}`}>
+                          <line
+                            x1={chart.left}
+                            y1={tick.y}
+                            x2={chart.plotRight}
+                            y2={tick.y}
+                            stroke="rgba(163, 171, 186, 0.45)"
+                            strokeWidth="1.2"
+                          />
+                          <text
+                            x={chart.left - 10}
+                            y={tick.y + 4}
+                            textAnchor="end"
+                            fontSize="13"
+                            fontWeight="500"
+                            fill="var(--muted)"
+                          >
+                            {tick.label}
+                          </text>
+                        </g>
+                      ))}
+
+                      <line
+                        x1={chart.left}
+                        y1={chart.top}
+                        x2={chart.left}
+                        y2={chart.plotBottom}
+                        stroke="rgba(32,44,102,0.18)"
+                        strokeWidth="1.2"
+                      />
+
+                      <rect
+                        x={chart.left}
+                        y={chart.top}
+                        width={chart.plotRight - chart.left}
+                        height={chart.plotBottom - chart.top}
+                        fill="transparent"
+                        onMouseEnter={() => {
+                          setHoveredIndex(null);
+                          setHoveredHistoryIndex(null);
+                        }}
+                        onMouseLeave={() => {
+                          setHoveredIndex(null);
+                          setHoveredHistoryIndex(null);
+                        }}
+                      />
+
+                      <polygon
+                        points={chart.bandPolygon}
+                        fill="rgba(200, 215, 227, 0.9)"
+                      />
+
+                      <line
+                        x1={chart.dividerX}
+                        y1={chart.top}
+                        x2={chart.dividerX}
+                        y2={chart.plotBottom}
+                        stroke="currentColor"
+                        strokeDasharray="6 6"
+                        strokeWidth="1.4"
+                        className="text-[var(--bond-blue)]/35"
+                      />
+
+                      <polyline
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="3.4"
+                        strokeLinejoin="round"
+                        strokeLinecap="round"
+                        className="text-[var(--bond-blue)]"
+                        points={chart.historyPolyline}
+                      />
+
+                      <polyline
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="3"
+                        strokeDasharray="8 6"
+                        strokeLinejoin="round"
+                        strokeLinecap="round"
+                        className="text-[var(--gameday-blue)]"
+                        points={chart.forecastPolyline}
+                      />
+
+                      {chart.historyPoints.map((point, index) => {
+                        const isActive = hoveredHistoryIndex === index;
+
+                        return (
+                          <g key={`h-${point.date.toISOString()}`}>
+                            {isActive && (
+                              <circle
+                                cx={point.x}
+                                cy={point.y}
+                                r={5}
+                                fill="rgba(32, 44, 102, 1)"
+                                stroke="white"
+                                strokeWidth={1.6}
+                              />
+                            )}
+                            <circle
+                              cx={point.x}
+                              cy={point.y}
+                              r={10}
+                              fill="transparent"
+                              onMouseEnter={() => {
+                                setHoveredHistoryIndex(index);
+                                setHoveredIndex(null);
+                              }}
+                            />
+                          </g>
+                        );
+                      })}
+
+                      {chart.forecastPoints.map((point, index) => {
+                        const isActive = hoveredIndex === index;
+
+                        return (
+                          <g key={point.date.toISOString()}>
+                            <circle
+                              cx={point.x}
+                              cy={point.y}
+                              r={isActive ? 5.5 : 3.5}
+                              fill={
+                                isActive
+                                  ? "rgba(123, 159, 188, 1)"
+                                  : "rgba(123, 159, 188, 0.95)"
+                              }
+                              stroke={
+                                isActive
+                                  ? "rgba(32, 44, 102, 1)"
+                                  : "transparent"
+                              }
+                              strokeWidth={isActive ? 1.6 : 0}
+                            />
+                            <circle
+                              cx={point.x}
+                              cy={point.y}
+                              r={12}
+                              fill="transparent"
+                              onMouseEnter={() => {
+                                setHoveredIndex(index);
+                                setHoveredHistoryIndex(null);
+                              }}
+                            />
+                          </g>
+                        );
+                      })}
+
+                      {chart.monthTicks.map((tick) => (
+                        <text
+                          key={tick.key}
+                          x={tick.x}
+                          y={chart.height - 14}
+                          textAnchor="middle"
+                          fontSize="14"
+                          fontWeight="500"
+                          fill="var(--muted)"
+                        >
+                          {tick.label}
                         </text>
-                        <text x={x} y={y - 8} textAnchor="middle" className="fill-[var(--ink)] text-[9px]">
-                          {value.toFixed(1)}
-                        </text>
-                      </g>
-                    );
-                  })}
-                </svg>
+                      ))}
+
+                      <text
+                        x={16}
+                        y={chart.top - 2}
+                        fontSize="12"
+                        fontWeight="600"
+                        fill="var(--muted)"
+                      >
+                        US¢/lb
+                      </text>
+
+                    </svg>
+                  )}
+                </div>
+
+                <div className="mt-3 flex flex-wrap gap-3 text-[12px] text-[var(--muted)]">
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="h-2.5 w-2.5 rounded-full bg-[var(--bond-blue)]" />
+                    Historical coffee_c series
+                  </span>
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="h-2.5 w-2.5 rounded-full bg-[var(--gameday-blue)]" />
+                    Recursive weekly forecast path
+                  </span>
+                </div>
               </div>
             </div>
 
             <div className="rounded-3xl border border-[var(--line)] bg-white p-4">
               <div className="mb-3 flex items-center justify-between">
-                <h2 className="text-base font-medium text-[var(--bond-blue)]">Today</h2>
+                <h2 className="text-base font-medium text-[var(--bond-blue)]">
+                  Today
+                </h2>
                 <span className="text-xs text-[var(--muted)]">3 notes</span>
               </div>
               <div className="space-y-2.5">
@@ -124,7 +752,9 @@ export default function CoffeeFuturesSite() {
                       <span>{item.source}</span>
                       <span>{item.time}</span>
                     </div>
-                    <h3 className="mt-1.5 text-sm font-medium leading-5 text-[var(--ink)]">{item.title}</h3>
+                    <h3 className="mt-1.5 text-sm font-medium leading-5 text-[var(--ink)]">
+                      {item.title}
+                    </h3>
                   </article>
                 ))}
               </div>
@@ -135,8 +765,12 @@ export default function CoffeeFuturesSite() {
             <div className="rounded-3xl border border-[var(--line)] bg-white p-4">
               <div className="mb-3 flex items-center justify-between gap-3">
                 <div>
-                  <h2 className="text-base font-medium text-[var(--bond-blue)]">Contracts</h2>
-                  <p className="text-xs text-[var(--muted)]">Compact contract cards</p>
+                  <h2 className="text-base font-medium text-[var(--bond-blue)]">
+                    Contracts
+                  </h2>
+                  <p className="text-xs text-[var(--muted)]">
+                    Compact contract cards
+                  </p>
                 </div>
                 <div className="rounded-full border border-[var(--line-strong)] bg-[var(--prasad-purple)]/18 px-3 py-1 text-xs font-medium text-[var(--bond-blue)]">
                   Delayed demo
@@ -157,12 +791,18 @@ export default function CoffeeFuturesSite() {
                       <div>
                         <div
                           className={`text-[10px] uppercase tracking-[0.18em] ${
-                            index === 0 ? "text-white/70" : "text-[var(--muted)]"
+                            index === 0
+                              ? "text-white/70"
+                              : "text-[var(--muted)]"
                           }`}
                         >
                           {contract.symbol}
                         </div>
-                        <h3 className={`mt-1 text-sm font-medium ${index === 0 ? "text-white" : "text-[var(--ink)]"}`}>
+                        <h3
+                          className={`mt-1 text-sm font-medium ${
+                            index === 0 ? "text-white" : "text-[var(--ink)]"
+                          }`}
+                        >
                           {contract.month}
                         </h3>
                       </div>
@@ -177,23 +817,83 @@ export default function CoffeeFuturesSite() {
                       </div>
                     </div>
 
-                    <div className={`mt-4 text-3xl font-semibold tracking-tight ${index === 0 ? "text-white" : "text-[var(--bond-blue)]"}`}>
+                    <div
+                      className={`mt-4 text-3xl font-semibold tracking-tight ${
+                        index === 0
+                          ? "text-white"
+                          : "text-[var(--bond-blue)]"
+                      }`}
+                    >
                       {contract.price}
                     </div>
-                    <div className={`mt-1 text-xs ${index === 0 ? "text-white/70" : "text-[var(--muted)]"}`}>US¢/lb settlement</div>
+                    <div
+                      className={`mt-1 text-xs ${
+                        index === 0 ? "text-white/70" : "text-[var(--muted)]"
+                      }`}
+                    >
+                      US¢/lb settlement
+                    </div>
 
                     <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
                       <div>
-                        <div className={index === 0 ? "text-white/65" : "text-[var(--muted)]"}>Change</div>
-                        <div className={index === 0 ? "text-white" : "text-[var(--bond-blue)]"}>{contract.change}</div>
+                        <div
+                          className={
+                            index === 0
+                              ? "text-white/65"
+                              : "text-[var(--muted)]"
+                          }
+                        >
+                          Change
+                        </div>
+                        <div
+                          className={
+                            index === 0
+                              ? "text-white"
+                              : "text-[var(--bond-blue)]"
+                          }
+                        >
+                          {contract.change}
+                        </div>
                       </div>
                       <div>
-                        <div className={index === 0 ? "text-white/65" : "text-[var(--muted)]"}>Volume</div>
-                        <div className={index === 0 ? "text-white/85" : "text-[var(--ink)]"}>{contract.volume}</div>
+                        <div
+                          className={
+                            index === 0
+                              ? "text-white/65"
+                              : "text-[var(--muted)]"
+                          }
+                        >
+                          Volume
+                        </div>
+                        <div
+                          className={
+                            index === 0
+                              ? "text-white/85"
+                              : "text-[var(--ink)]"
+                          }
+                        >
+                          {contract.volume}
+                        </div>
                       </div>
                       <div className="col-span-2">
-                        <div className={index === 0 ? "text-white/65" : "text-[var(--muted)]"}>Open interest</div>
-                        <div className={index === 0 ? "text-white/85" : "text-[var(--ink)]"}>{contract.openInterest}</div>
+                        <div
+                          className={
+                            index === 0
+                              ? "text-white/65"
+                              : "text-[var(--muted)]"
+                          }
+                        >
+                          Open interest
+                        </div>
+                        <div
+                          className={
+                            index === 0
+                              ? "text-white/85"
+                              : "text-[var(--ink)]"
+                          }
+                        >
+                          {contract.openInterest}
+                        </div>
                       </div>
                     </div>
                   </article>
@@ -204,8 +904,12 @@ export default function CoffeeFuturesSite() {
             <div className="rounded-3xl border border-[var(--line)] bg-[linear-gradient(180deg,rgba(123,159,188,0.18),rgba(197,174,203,0.14))] p-4">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <h2 className="text-base font-medium text-[var(--bond-blue)]">Market snapshot</h2>
-                  <p className="text-xs text-[var(--muted)]">Core futures metrics at a glance</p>
+                  <h2 className="text-base font-medium text-[var(--bond-blue)]">
+                    Market snapshot
+                  </h2>
+                  <p className="text-xs text-[var(--muted)]">
+                    Core futures metrics at a glance
+                  </p>
                 </div>
                 <div className="rounded-full border border-[var(--line-strong)] bg-white px-3 py-1 text-xs font-medium text-[var(--bond-blue)]">
                   Live summary
@@ -229,10 +933,20 @@ export default function CoffeeFuturesSite() {
                     >
                       {stat.label}
                     </div>
-                    <div className={`mt-2 text-2xl font-semibold tracking-tight ${stat.featured ? "text-white" : "text-[var(--bond-blue)]"}`}>
+                    <div
+                      className={`mt-2 text-2xl font-semibold tracking-tight ${
+                        stat.featured ? "text-white" : "text-[var(--bond-blue)]"
+                      }`}
+                    >
                       {stat.value}
                     </div>
-                    <div className={`mt-1 text-xs ${stat.featured ? "text-white/70" : "text-[var(--muted)]"}`}>{stat.sub}</div>
+                    <div
+                      className={`mt-1 text-xs ${
+                        stat.featured ? "text-white/70" : "text-[var(--muted)]"
+                      }`}
+                    >
+                      {stat.sub}
+                    </div>
                   </div>
                 ))}
               </div>
