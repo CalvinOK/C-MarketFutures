@@ -39,9 +39,18 @@ export default function CoffeeFuturesSite() {
       <div className="mx-auto max-w-6xl px-4 py-5 sm:px-6 lg:px-8">
         <section className="space-y-4 rounded-[28px] border border-[var(--line)] bg-[var(--panel)] p-4 shadow-[0_24px_80px_rgba(32,44,102,0.08)] sm:p-5">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-            <div className="max-w-2xl">
-              <div className="mb-4 flex items-center gap-4">
-                <div className="flex h-16 items-center rounded-2xl border border-[var(--line)] bg-white px-4 shadow-[0_8px_24px_rgba(32,44,102,0.06)] sm:h-20 sm:px-5">
+            <div className="max-w-3xl flex-1">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <h1 className="mt-3 max-w-xl text-2xl font-semibold tracking-tight text-[var(--bond-blue)] sm:text-3xl">
+                    Great Lakes Coffee Futures
+                  </h1>
+                  <p className="mt-2 max-w-lg text-sm leading-6 text-[var(--muted)]">
+                    ICE Arabia Coffee Futures
+                  </p>
+                </div>
+
+                <div className="flex h-16 shrink-0 items-center rounded-2xl border border-[var(--line)] bg-white px-4 shadow-[0_8px_24px_rgba(32,44,102,0.06)] sm:h-20 sm:px-5">
                   <Image
                     src="/bond-logo-navy.png"
                     alt="Bond Consulting"
@@ -52,16 +61,6 @@ export default function CoffeeFuturesSite() {
                   />
                 </div>
               </div>
-
-              <div className="inline-flex rounded-full border border-[var(--bond-blue)]/15 bg-[var(--bond-blue)]/8 px-2.5 py-1 text-[11px] font-semibold tracking-wide text-[var(--bond-blue)]">
-                ICE Arabica Coffee Futures
-              </div>
-              <h1 className="mt-3 max-w-xl text-2xl font-semibold tracking-tight text-[var(--bond-blue)] sm:text-3xl">
-                Coffee futures, simplified.
-              </h1>
-              <p className="mt-2 max-w-lg text-sm leading-6 text-[var(--muted)]">
-                A tighter dashboard for curve shape, key contracts, and market context.
-              </p>
             </div>
           </div>
 
