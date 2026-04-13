@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
+import bondLogoNavy from "../public/bond-logo-navy.png";
 
 type HistoryRow = {
   date: string;
@@ -181,14 +182,8 @@ function buildYAxisTicks(minValue: number, maxValue: number, count = 5): number[
 }
 
 export default function CoffeeFuturesSite() {
-  const historyCsvCandidates = [
-    "/data/coffee_xgb_proj4_history.csv",
-    "/data/coffee_spot_backtest.csv",
-  ];
-  const forecastCsvCandidates = [
-    "/data/coffee_xgb_proj4_rolling_path.csv",
-    "/data/coffee_spot_projection_6m.csv",
-  ];
+  const historyCsvPath = "/data/coffee_xgb_proj4_history.csv";
+  const forecastCsvPath = "/data/coffee_xgb_proj4_rolling_path.csv";
 
   const contracts = [
     {
@@ -264,26 +259,24 @@ export default function CoffeeFuturesSite() {
   useEffect(() => {
     let cancelled = false;
 
-    async function fetchFirstAvailable(paths: string[], label: string) {
-      const statuses: string[] = [];
-
-      for (const path of paths) {
-        const response = await fetch(path);
-        if (response.ok) {
-          return response;
-        }
-        statuses.push(`${path} (${response.status})`);
-      }
-
-      throw new Error(`Failed to load ${label} data: ${statuses.join(", ")}`);
-    }
-
     async function loadChartData() {
       try {
         const [historyResponse, pathResponse] = await Promise.all([
-          fetchFirstAvailable(historyCsvCandidates, "history"),
-          fetchFirstAvailable(forecastCsvCandidates, "forecast"),
+          fetch(historyCsvPath),
+          fetch(forecastCsvPath),
         ]);
+
+        if (!historyResponse.ok) {
+          throw new Error(
+            `Failed to load history data (${historyResponse.status})`,
+          );
+        }
+
+        if (!pathResponse.ok) {
+          throw new Error(
+            `Failed to load forecast data (${pathResponse.status})`,
+          );
+        }
 
         const [historyText, pathText] = await Promise.all([
           historyResponse.text(),
@@ -539,7 +532,7 @@ export default function CoffeeFuturesSite() {
 
                 <div className="flex h-16 shrink-0 items-center rounded-2xl border border-[var(--line)] bg-white px-4 shadow-[0_8px_24px_rgba(32,44,102,0.06)] sm:h-20 sm:px-5">
                   <Image
-                    src="/bond-logo-navy.png"
+                    src={bondLogoNavy}
                     alt="Bond Consulting"
                     width={320}
                     height={96}
