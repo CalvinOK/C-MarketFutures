@@ -5,10 +5,15 @@
     "last_price": 300.65,
     "price_change": 6.7,
     "price_change_pct": 0.022793,
-    "volume": 16859,
-    "open_interest": 0,
-    "captured_at": "2026-04-13T06:30:48.054341+00:00",
-    "source": "yahoo_finance"
+    "volume": 21699,
+    "open_interest": 38438,
+    "captured_at": "2026-04-13T08:20:54.940173+00:00",
+    "price_as_of": "2026-04-13",
+    "source": "yahoo_finance",
+    "dataset": null,
+    "oi_date": "2026-04-13",
+    "oi_published_at": "2026-04-13T08:20:56.349566+00:00",
+    "oi_source": "databento_statistics"
   },
   {
     "symbol": "KCN26",
@@ -16,10 +21,15 @@
     "last_price": 296.4,
     "price_change": 6.55,
     "price_change_pct": 0.022598,
-    "volume": 9816,
-    "open_interest": 0,
-    "captured_at": "2026-04-13T06:30:48.054341+00:00",
-    "source": "yahoo_finance"
+    "volume": 23902,
+    "open_interest": 64256,
+    "captured_at": "2026-04-13T08:20:54.940173+00:00",
+    "price_as_of": "2026-04-13",
+    "source": "yahoo_finance",
+    "dataset": null,
+    "oi_date": "2026-04-13",
+    "oi_published_at": "2026-04-13T08:20:56.349566+00:00",
+    "oi_source": "databento_statistics"
   },
   {
     "symbol": "KCU26",
@@ -27,10 +37,15 @@
     "last_price": 281.6,
     "price_change": 5.3,
     "price_change_pct": 0.019182,
-    "volume": 4641,
-    "open_interest": 0,
-    "captured_at": "2026-04-13T06:30:48.054341+00:00",
-    "source": "yahoo_finance"
+    "volume": 5950,
+    "open_interest": 31929,
+    "captured_at": "2026-04-13T08:20:54.940173+00:00",
+    "price_as_of": "2026-04-13",
+    "source": "yahoo_finance",
+    "dataset": null,
+    "oi_date": "2026-04-13",
+    "oi_published_at": "2026-04-13T08:20:56.349566+00:00",
+    "oi_source": "databento_statistics"
   },
   {
     "symbol": "KCZ26",
@@ -38,9 +53,14 @@
     "last_price": 271.5,
     "price_change": 4.5,
     "price_change_pct": 0.016854,
-    "volume": 2664,
-    "open_interest": 0,
-    "captured_at": "2026-04-13T06:30:48.054341+00:00",
-    "source": "yahoo_finance"
+    "volume": 3164,
+    "open_interest": 25688,
+    "captured_at": "2026-04-13T08:20:54.940173+00:00",
+    "price_as_of": "2026-04-13",
+    "source": "yahoo_finance",
+    "dataset": null,
+    "oi_date": "2026-04-13",
+    "oi_published_at": "2026-04-13T08:20:56.349566+00:00",
+    "oi_source": "databento_statistics"
   }
 ]

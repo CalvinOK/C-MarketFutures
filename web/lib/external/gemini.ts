@@ -46,16 +46,20 @@ async function generateWithGemini(prompt: string): Promise<string> {
         systemInstruction: {
           parts: [
             {
-              text: `You are a commodity markets analyst. Process news articles about coffee futures only.
-For each article return a JSON array. Each element must have:
+              text: `You are a commodity markets analyst specializing in coffee futures.
+You will receive a list of news articles. For each article, decide if it is PRIMARILY about coffee as a commodity, futures market, supply chain, or agricultural investment.
+- If an article only mentions coffee incidentally (e.g. a general economy piece that lists coffee among many goods), SKIP it — do not include it in the output.
+- Only include articles whose main subject is coffee markets, coffee futures/contracts, coffee crop/supply/demand, or coffee trade/logistics.
+
+For each INCLUDED article return an element in a JSON array with:
 - "index": the article [N] number (integer)
-- "summary": one precise sentence, max 22 words, factual, and based only on the article text
+- "summary": one precise sentence, max 22 words, factual, based only on the article text
 - "category": exactly one of "Market Brief", "Commodities Desk", or "Trade Note"
 Rules:
 * Market Brief  -> macro price moves, fund flows, exchange data, COT positioning
 * Commodities Desk -> supply/demand, crop conditions, weather impact, ICE inventory
 * Trade Note -> FX impact, shipping, policy, roaster hedging, arbitrage
-Return ONLY a valid JSON array. No other text.`,
+Return ONLY a valid JSON array. No other text. Return [] if no articles qualify.`,
             },
           ],
         },

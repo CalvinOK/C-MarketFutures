@@ -87,7 +87,10 @@ function isRelevantCoffeeNews(title: string, description: string | null): boolea
   }
 
   if (text.includes('coffee') || text.includes('arabica') || text.includes('robusta')) {
-    return COFFEE_SUPPORT_TERMS.some((term) => text.includes(term))
+    // Require at least 2 support terms so generic mentions ("coffee prices rise")
+    // don't slip through as commodity/futures news.
+    const matchCount = COFFEE_SUPPORT_TERMS.filter((term) => text.includes(term)).length
+    return matchCount >= 2
   }
 
   return false

@@ -49,7 +49,8 @@ export async function GET(request: Request) {
        FROM news_articles
        WHERE published_at > NOW() - INTERVAL '24 hours'
        ORDER BY published_at DESC
-      LIMIT ${MAX_ARTICLES}`,
+      LIMIT $1`,
+      [MAX_ARTICLES],
     )
 
     // If nothing in last 24 h, return most recent rows as stale fallback
@@ -58,7 +59,8 @@ export async function GET(request: Request) {
         `SELECT category, summary AS text, source_name AS source, published_at AS timestamp
          FROM news_articles
          ORDER BY published_at DESC
-        LIMIT ${MAX_ARTICLES}`,
+        LIMIT $1`,
+        [MAX_ARTICLES],
       )
       return NextResponse.json(stale, {
         headers: { 'X-Cache': 'MISS', 'X-Data-Freshness': 'stale' },

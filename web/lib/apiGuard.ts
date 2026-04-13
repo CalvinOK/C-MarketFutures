@@ -6,6 +6,18 @@ type RateEntry = {
 }
 
 const RATE_STATE = new Map<string, RateEntry>()
+const RATE_CLEANUP_INTERVAL_MS = 60_000
+let lastCleanupAt = 0
+
+function cleanupExpiredRateEntries(now: number): void {
+  if (now - lastCleanupAt < RATE_CLEANUP_INTERVAL_MS) return
+  for (const [key, entry] of RATE_STATE.entries()) {
+    if (entry.resetAt <= now) {
+      RATE_STATE.delete(key)
+    }
+  }
+  lastCleanupAt = now
+}
 
 function getClientId(request: Request): string {
   const forwarded = request.headers.get('x-forwarded-for')
@@ -36,6 +48,7 @@ export function enforceRateLimit(
 ): NextResponse | null {
   const clientId = getClientId(request)
   const now = Date.now()
+  cleanupExpiredRateEntries(now)
   const stateKey = `${key}:${clientId}`
 
   const current = RATE_STATE.get(stateKey)

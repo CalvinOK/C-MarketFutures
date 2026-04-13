@@ -53,6 +53,7 @@ type SucafinaBriefApiItem = {
   report_url: string;
   market_bias: string;
   key_takeaways: string[];
+  generated_at?: string;
 };
 
 type TodayFeedItem =
@@ -89,13 +90,27 @@ const MONTH_CODE_MAP: Record<string, string> = {
 };
 
 function symbolToMonth(symbol: string): string {
-  // KCK26 → "May 2026"
+  // Handles KC month code and 1-digit/2-digit year suffixes (e.g., KCM6 or KCM26).
   const code = symbol[2];
-  const yearSuffix = symbol.slice(4);
-  return `${MONTH_CODE_MAP[code] ?? code} 20${yearSuffix}`;
+  const rawYear = symbol.slice(4).trim();
+
+  let fullYear: string;
+  if (/^\d{2}$/.test(rawYear)) {
+    fullYear = `20${rawYear}`;
+  } else if (/^\d$/.test(rawYear)) {
+    fullYear = `202${rawYear}`;
+  } else if (/^\d{4}$/.test(rawYear)) {
+    fullYear = rawYear;
+  } else {
+    fullYear = rawYear || "N/A";
+  }
+
+  return `${MONTH_CODE_MAP[code] ?? code} ${fullYear}`;
 }
 
-function formatK(n: number): string {
+function formatK(value: number | null | undefined): string {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "N/A";
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
   if (n >= 1_000) return (n / 1_000).toFixed(1) + "K";
   return n.toString();
@@ -359,7 +374,6 @@ export default function CoffeeFuturesSite() {
   const [liveNews, setLiveNews] = useState<NewsApiItem[] | null>(null);
   const [liveSucafinaBrief, setLiveSucafinaBrief] = useState<SucafinaBriefApiItem | null>(null);
   const [liveSnapshot, setLiveSnapshot] = useState<SnapshotData | null>(null);
-  const [isLiveData, setIsLiveData] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -439,6 +453,7 @@ export default function CoffeeFuturesSite() {
 
       if (contractsRes.status === "fulfilled" && contractsRes.value.ok) {
         const data: ContractApiRow[] = await contractsRes.value.json();
+        if (cancelled) return;
         if (Array.isArray(data) && data.length > 0) {
           setLiveContracts(data);
           setContractsUnavailable(false);
@@ -453,19 +468,21 @@ export default function CoffeeFuturesSite() {
 
       if (newsRes.status === "fulfilled" && newsRes.value.ok) {
         const data: NewsApiItem[] = await newsRes.value.json();
+        if (cancelled) return;
         if (Array.isArray(data) && data.length > 0) setLiveNews(data);
       }
 
       if (snapshotRes.status === "fulfilled" && snapshotRes.value.ok) {
         const data: SnapshotData = await snapshotRes.value.json();
+        if (cancelled) return;
         if (data?.frontPrice) {
           setLiveSnapshot(data);
-          setIsLiveData(true);
         }
       }
 
       if (briefRes.status === "fulfilled" && briefRes.value.ok) {
         const data: SucafinaBriefApiItem = await briefRes.value.json();
+        if (cancelled) return;
         if (data?.headline && data?.source_report) {
           setLiveSucafinaBrief(data);
         }
@@ -520,6 +537,12 @@ export default function CoffeeFuturesSite() {
       }))
     : staticHeadlines.map((h) => ({ ...h, url: null }));
 
+  const isLiveData = Boolean(
+    liveContracts && liveContracts.length > 0 &&
+    liveNews && liveNews.length > 0 &&
+    liveSnapshot && liveSnapshot.frontPrice,
+  );
+
   const sucafinaSummaryText = liveSucafinaBrief
     ? `${liveSucafinaBrief.market_bias}. ${liveSucafinaBrief.key_takeaways[0] ?? ""}`.trim()
     : staticSucafinaSummary.summary;
@@ -537,7 +560,7 @@ export default function CoffeeFuturesSite() {
           kind: "sucafina" as const,
           title: liveSucafinaBrief.headline,
           source: liveSucafinaBrief.source_report,
-          date: null,
+          date: formatNewsDate(liveSucafinaBrief.generated_at ?? ""),
           url: liveSucafinaBrief.report_url,
           summary: sucafinaSummaryText,
         }
@@ -711,6 +734,24 @@ export default function CoffeeFuturesSite() {
     const futureProjectionValue = forecastPath[forecastPath.length - 1].projectedPrice;
     const futureProjectionY = toY(futureProjectionValue);
 
+    // Calculate mean prices
+    // 1-month rolling mean: use last 30 days of history (~20 trading days)
+    const historyMeanPrice =
+      history.length > 0
+        ? history
+            .slice(-30)
+            .reduce((sum, row) => sum + row.price, 0) /
+          Math.min(30, history.length)
+        : 0;
+    const historyMeanY = toY(historyMeanPrice);
+
+    const forecastMeanPrice =
+      forecastPath.length > 0
+        ? forecastPath.reduce((sum, row) => sum + row.projectedPrice, 0) /
+          forecastPath.length
+        : 0;
+    const forecastMeanY = toY(forecastMeanPrice);
+
     return {
       width,
       height,
@@ -725,6 +766,10 @@ export default function CoffeeFuturesSite() {
       forecastPoints,
       futureProjectionY,
       futureProjectionValue,
+      historyMeanY,
+      historyMeanPrice,
+      forecastMeanY,
+      forecastMeanPrice,
       monthTicks: filteredTicks,
       yAxisTicks,
       dividerX: historyPoints[historyPoints.length - 1].x,
@@ -784,7 +829,7 @@ export default function CoffeeFuturesSite() {
         <section className="space-y-4 rounded-[28px] border border-[var(--line)] bg-[var(--panel)] p-4 shadow-[0_24px_80px_rgba(32,44,102,0.08)] sm:p-5">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div className="max-w-3xl flex-1">
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div className="flex flex-col gap-4">
                 <div>
                   <h1 className="mt-3 max-w-xl text-2xl font-semibold tracking-tight text-[var(--bond-blue)] sm:text-3xl">
                     Great Lakes Coffee Futures
@@ -793,18 +838,18 @@ export default function CoffeeFuturesSite() {
                     ICE Arabia Coffee Futures
                   </p>
                 </div>
-
-                <div className="flex h-16 shrink-0 items-center rounded-2xl border border-[var(--line)] bg-white px-4 shadow-[0_8px_24px_rgba(32,44,102,0.06)] sm:h-20 sm:px-5">
-                  <Image
-                    src={bondLogoNavy}
-                    alt="Bond Consulting"
-                    width={320}
-                    height={96}
-                    className="h-10 w-auto object-contain sm:h-12"
-                    priority
-                  />
-                </div>
               </div>
+            </div>
+
+            <div className="flex h-16 shrink-0 items-center rounded-2xl border border-[var(--line)] bg-white px-4 shadow-[0_8px_24px_rgba(32,44,102,0.06)] sm:h-20 sm:px-5">
+              <Image
+                src={bondLogoNavy}
+                alt="Bond Consulting"
+                width={320}
+                height={96}
+                className="h-10 w-auto object-contain sm:h-12"
+                priority
+              />
             </div>
           </div>
 
@@ -925,7 +970,7 @@ export default function CoffeeFuturesSite() {
                       <polyline
                         fill="none"
                         stroke="currentColor"
-                        strokeWidth="3.4"
+                        strokeWidth="4.2"
                         strokeLinejoin="round"
                         strokeLinecap="round"
                         className="text-[var(--bond-blue)]"
@@ -935,7 +980,7 @@ export default function CoffeeFuturesSite() {
                       <polyline
                         fill="none"
                         stroke="currentColor"
-                        strokeWidth="3"
+                        strokeWidth="3.8"
                         strokeDasharray="8 6"
                         strokeLinejoin="round"
                         strokeLinecap="round"
@@ -952,6 +997,28 @@ export default function CoffeeFuturesSite() {
                         strokeWidth="1.5"
                         strokeDasharray="6 4"
                         opacity="0.8"
+                      />
+
+                      <line
+                        x1={chart.left}
+                        y1={chart.historyMeanY}
+                        x2={chart.dividerX}
+                        y2={chart.historyMeanY}
+                        stroke="rgba(32, 44, 102, 0.5)"
+                        strokeWidth="1.2"
+                        strokeDasharray="3 3"
+                        opacity="0.7"
+                      />
+
+                      <line
+                        x1={chart.dividerX}
+                        y1={chart.forecastMeanY}
+                        x2={chart.plotRight}
+                        y2={chart.forecastMeanY}
+                        stroke="rgba(123, 159, 188, 0.5)"
+                        strokeWidth="1.2"
+                        strokeDasharray="3 3"
+                        opacity="0.7"
                       />
 
                       {chart.historyPoints.map((point, index) => {
@@ -1059,6 +1126,14 @@ export default function CoffeeFuturesSite() {
                     <span className="inline-block h-[2px] w-5 rounded-full bg-[#059669]" style={{ borderTop: "2px dashed #059669" }} />
                     Future projection ({chart?.futureProjectionValue.toFixed(2)})
                   </span>
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="inline-block h-[2px] w-5" style={{ borderTop: "1px dashed rgba(32, 44, 102, 0.5)" }} />
+                    1-mo mean ({chart?.historyMeanPrice.toFixed(2)})
+                  </span>
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="inline-block h-[2px] w-5" style={{ borderTop: "1px dashed rgba(123, 159, 188, 0.5)" }} />
+                    Forecast mean ({chart?.forecastMeanPrice.toFixed(2)})
+                  </span>
                 </div>
               </div>
             </div>
@@ -1077,7 +1152,7 @@ export default function CoffeeFuturesSite() {
                     <>
                       <div className="flex items-center justify-between gap-3 text-[10px] uppercase tracking-[0.16em] text-[var(--muted)]">
                         <span>{item.source}</span>
-                        <span>Scrape summary</span>
+                        {item.date ? <span>{item.date}</span> : null}
                       </div>
                       <h3 className="mt-1.5 text-sm font-medium leading-5 text-[var(--ink)]">
                         {item.title}
@@ -1151,13 +1226,13 @@ export default function CoffeeFuturesSite() {
                 {displayContracts.map((contract, index) => (
                   <article
                     key={contractsUnavailable ? `na-${index}` : contract.symbol}
-                    className={`rounded-2xl border p-3.5 ${
+                    className={`flex h-full flex-col rounded-2xl border p-3.5 ${
                       index === 0
                         ? "border-[var(--bond-blue)]/16 bg-[var(--bond-blue)] text-white shadow-[0_14px_30px_rgba(32,44,102,0.18)]"
                         : "border-[var(--line)] bg-[var(--page-bg)]"
                     }`}
                   >
-                    <div className="flex items-start justify-between gap-3">
+                    <div className="flex min-h-[3.25rem] items-start justify-between gap-3">
                       <div>
                         <div
                           className={`text-[10px] uppercase tracking-[0.18em] ${
@@ -1188,7 +1263,7 @@ export default function CoffeeFuturesSite() {
                     </div>
 
                     <div
-                      className={`mt-4 text-3xl font-semibold tracking-tight ${
+                      className={`mt-4 text-3xl font-semibold tracking-tight tabular-nums ${
                         index === 0
                           ? "text-white"
                           : "text-[var(--bond-blue)]"
@@ -1204,8 +1279,8 @@ export default function CoffeeFuturesSite() {
                       US¢/lb settlement
                     </div>
 
-                    <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
-                      <div>
+                    <div className="mt-4 grid grid-cols-2 gap-x-3 gap-y-2 border-t border-current/10 pt-3 text-xs tabular-nums">
+                      <div className="space-y-0.5">
                         <div
                           className={
                             index === 0
@@ -1225,7 +1300,7 @@ export default function CoffeeFuturesSite() {
                           {contract.change}
                         </div>
                       </div>
-                      <div>
+                      <div className="space-y-0.5">
                         <div
                           className={
                             index === 0
@@ -1245,7 +1320,7 @@ export default function CoffeeFuturesSite() {
                           {contract.volume}
                         </div>
                       </div>
-                      <div className="col-span-2">
+                      <div className="col-span-2 space-y-0.5">
                         <div
                           className={
                             index === 0
@@ -1290,7 +1365,7 @@ export default function CoffeeFuturesSite() {
                 {displayStats.map((stat) => (
                   <div
                     key={stat.label}
-                    className={`rounded-2xl border p-4 ${
+                    className={`min-w-0 rounded-2xl border p-4 ${
                       stat.featured
                         ? "border-[var(--bond-blue)]/20 bg-[var(--bond-blue)] text-white shadow-[0_14px_30px_rgba(32,44,102,0.14)]"
                         : "border-[var(--line)] bg-white/72 backdrop-blur-sm"
@@ -1304,7 +1379,9 @@ export default function CoffeeFuturesSite() {
                       {stat.label}
                     </div>
                     <div
-                      className={`mt-2 text-2xl font-semibold tracking-tight ${
+                      className={`mt-2 text-xl font-semibold leading-tight tracking-tight sm:text-2xl ${
+                        stat.label === "Shape" ? "break-all" : ""
+                      } ${
                         stat.featured ? "text-white" : "text-[var(--bond-blue)]"
                       }`}
                     >
