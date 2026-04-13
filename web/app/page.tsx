@@ -355,6 +355,7 @@ export default function CoffeeFuturesSite() {
 
   // Live data from backend API
   const [liveContracts, setLiveContracts] = useState<ContractApiRow[] | null>(null);
+  const [contractsUnavailable, setContractsUnavailable] = useState(false);
   const [liveNews, setLiveNews] = useState<NewsApiItem[] | null>(null);
   const [liveSucafinaBrief, setLiveSucafinaBrief] = useState<SucafinaBriefApiItem | null>(null);
   const [liveSnapshot, setLiveSnapshot] = useState<SnapshotData | null>(null);
@@ -438,7 +439,16 @@ export default function CoffeeFuturesSite() {
 
       if (contractsRes.status === "fulfilled" && contractsRes.value.ok) {
         const data: ContractApiRow[] = await contractsRes.value.json();
-        if (Array.isArray(data) && data.length > 0) setLiveContracts(data);
+        if (Array.isArray(data) && data.length > 0) {
+          setLiveContracts(data);
+          setContractsUnavailable(false);
+        } else {
+          setLiveContracts(null);
+          setContractsUnavailable(true);
+        }
+      } else {
+        setLiveContracts(null);
+        setContractsUnavailable(true);
       }
 
       if (newsRes.status === "fulfilled" && newsRes.value.ok) {
@@ -488,7 +498,18 @@ export default function CoffeeFuturesSite() {
         volume: formatK(Number(c.volume)),
         openInterest: formatK(Number(c.open_interest)),
       }))
-    : staticContracts;
+    : contractsUnavailable
+      ? staticContracts.map((contract) => ({
+          ...contract,
+          month: "N/A",
+          symbol: "N/A",
+          price: "N/A",
+          change: "N/A",
+          pct: "N/A",
+          volume: "N/A",
+          openInterest: "N/A",
+        }))
+      : staticContracts;
 
   const displayHeadlines = liveNews
     ? liveNews.map((n) => ({
@@ -687,6 +708,9 @@ export default function CoffeeFuturesSite() {
       label: value.toFixed(0),
     }));
 
+    const futureProjectionValue = forecastPath[forecastPath.length - 1].projectedPrice;
+    const futureProjectionY = toY(futureProjectionValue);
+
     return {
       width,
       height,
@@ -699,6 +723,8 @@ export default function CoffeeFuturesSite() {
       bandPolygon,
       historyPoints,
       forecastPoints,
+      futureProjectionY,
+      futureProjectionValue,
       monthTicks: filteredTicks,
       yAxisTicks,
       dividerX: historyPoints[historyPoints.length - 1].x,
@@ -917,6 +943,17 @@ export default function CoffeeFuturesSite() {
                         points={chart.forecastPolyline}
                       />
 
+                      <line
+                        x1={chart.left}
+                        y1={chart.futureProjectionY}
+                        x2={chart.plotRight}
+                        y2={chart.futureProjectionY}
+                        stroke="#059669"
+                        strokeWidth="1.5"
+                        strokeDasharray="6 4"
+                        opacity="0.8"
+                      />
+
                       {chart.historyPoints.map((point, index) => {
                         const isActive = hoveredHistoryIndex === index;
 
@@ -1018,6 +1055,10 @@ export default function CoffeeFuturesSite() {
                     <span className="h-2.5 w-2.5 rounded-full bg-[var(--gameday-blue)]" />
                     Recursive weekly forecast path
                   </span>
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="inline-block h-[2px] w-5 rounded-full bg-[#059669]" style={{ borderTop: "2px dashed #059669" }} />
+                    Future projection ({chart?.futureProjectionValue.toFixed(2)})
+                  </span>
                 </div>
               </div>
             </div>
@@ -1101,15 +1142,15 @@ export default function CoffeeFuturesSite() {
                     Compact contract cards
                   </p>
                 </div>
-                <div className={`rounded-full border px-3 py-1 text-xs font-medium ${isLiveData ? "border-green-200 bg-green-50 text-green-700" : "border-[var(--line-strong)] bg-[var(--prasad-purple)]/18 text-[var(--bond-blue)]"}`}>
-                  {isLiveData ? "Live" : "Delayed demo"}
+                <div className={`rounded-full border px-3 py-1 text-xs font-medium ${isLiveData ? "border-green-200 bg-green-50 text-green-700" : contractsUnavailable ? "border-[var(--line)] bg-white text-[var(--muted)]" : "border-[var(--line-strong)] bg-[var(--prasad-purple)]/18 text-[var(--bond-blue)]"}`}>
+                  {isLiveData ? "Live" : contractsUnavailable ? "N/A" : "Delayed demo"}
                 </div>
               </div>
 
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                 {displayContracts.map((contract, index) => (
                   <article
-                    key={contract.symbol}
+                    key={contractsUnavailable ? `na-${index}` : contract.symbol}
                     className={`rounded-2xl border p-3.5 ${
                       index === 0
                         ? "border-[var(--bond-blue)]/16 bg-[var(--bond-blue)] text-white shadow-[0_14px_30px_rgba(32,44,102,0.18)]"

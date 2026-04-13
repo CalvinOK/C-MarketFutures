@@ -831,6 +831,8 @@ def save_six_month_projection_plot(raw_df: pd.DataFrame, weekly_path: pd.DataFra
         return
 
     business_path = weekly_path_to_business_days(as_of_date, current_price, weekly_path)
+    historical_avg = float(history["coffee_c"].mean())
+    projected_avg = float(business_path["projected_price"].mean())
 
     # Build confidence cone from weekly path sigma (annualised vol -> weekly vol)
     # Use realized weekly returns over the path to estimate forward uncertainty
@@ -864,6 +866,26 @@ def save_six_month_projection_plot(raw_df: pd.DataFrame, weekly_path: pd.DataFra
     # Forecast path
     ax.plot(business_path["Date"], business_path["projected_price"],
             color="#e76f51", linewidth=2.0, linestyle="--", label="6-month forecast path", zorder=4)
+
+    # Horizontal average reference lines
+    ax.axhline(
+        historical_avg,
+        color="#1f4e79",
+        linewidth=2.0,
+        linestyle="-.",
+        alpha=0.9,
+        label=f"Historical avg ({historical_avg:.1f}¢)",
+        zorder=2,
+    )
+    ax.axhline(
+        projected_avg,
+        color="#e76f51",
+        linewidth=2.0,
+        linestyle=":",
+        alpha=0.95,
+        label=f"Projected avg ({projected_avg:.1f}¢)",
+        zorder=2,
+    )
 
     # Weekly waypoint dots
     wk_dates = pd.to_datetime(weekly_path["Date"])

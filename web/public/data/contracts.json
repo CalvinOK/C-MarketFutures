@@ -2,41 +2,45 @@
   {
     "symbol": "KCK26",
     "expiry_date": "2026-05-19",
-    "last_price": 321.35,
-    "price_change": 0.0,
-    "price_change_pct": 0.0,
-    "volume": 0,
+    "last_price": 300.65,
+    "price_change": 6.7,
+    "price_change_pct": 0.022793,
+    "volume": 16859,
     "open_interest": 0,
-    "captured_at": "2026-04-13T04:52:26.189771+00:00"
+    "captured_at": "2026-04-13T06:30:48.054341+00:00",
+    "source": "yahoo_finance"
   },
   {
     "symbol": "KCN26",
     "expiry_date": "2026-07-20",
-    "last_price": 322.96,
-    "price_change": 0.0,
-    "price_change_pct": 0.0,
-    "volume": 0,
+    "last_price": 296.4,
+    "price_change": 6.55,
+    "price_change_pct": 0.022598,
+    "volume": 9816,
     "open_interest": 0,
-    "captured_at": "2026-04-13T04:52:26.189771+00:00"
+    "captured_at": "2026-04-13T06:30:48.054341+00:00",
+    "source": "yahoo_finance"
   },
   {
     "symbol": "KCU26",
     "expiry_date": "2026-09-18",
-    "last_price": 324.57,
-    "price_change": 0.0,
-    "price_change_pct": 0.0,
-    "volume": 0,
+    "last_price": 281.6,
+    "price_change": 5.3,
+    "price_change_pct": 0.019182,
+    "volume": 4641,
     "open_interest": 0,
-    "captured_at": "2026-04-13T04:52:26.189771+00:00"
+    "captured_at": "2026-04-13T06:30:48.054341+00:00",
+    "source": "yahoo_finance"
   },
   {
     "symbol": "KCZ26",
     "expiry_date": "2026-12-18",
-    "last_price": 326.17,
-    "price_change": 0.0,
-    "price_change_pct": 0.0,
-    "volume": 0,
+    "last_price": 271.5,
+    "price_change": 4.5,
+    "price_change_pct": 0.016854,
+    "volume": 2664,
     "open_interest": 0,
-    "captured_at": "2026-04-13T04:52:26.189771+00:00"
+    "captured_at": "2026-04-13T06:30:48.054341+00:00",
+    "source": "yahoo_finance"
   }
 ]

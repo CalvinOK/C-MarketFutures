@@ -1,8 +1,7 @@
 {
-  "frontPrice": 321.35,
-  "curveShape": "Contango",
-  "totalVolume": 0,
-  "totalOpenInterest": 0,
+  "frontPrice": 300.65,
+  "curveShape": "Backwardation",
   "frontSymbol": "KCK26",
-  "asOf": "2026-04-13T04:52:26.189771+00:00"
+  "asOf": "2026-04-13T06:30:48.054341+00:00",
+  "source": "yahoo_finance"
 }
