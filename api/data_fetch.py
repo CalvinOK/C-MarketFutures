@@ -35,7 +35,8 @@ except ImportError:
 # ── PATHS / ENV ─────────────────────────────────────────────────────
 
 ROOT = Path(__file__).parent
-WEB_PUBLIC_DATA = ROOT / "web" / "public" / "data"
+PROJECT_ROOT = ROOT.parent
+WEB_PUBLIC_DATA = PROJECT_ROOT / "website" / "public" / "data"
 DATA_DIR = ROOT / "data"
 
 WEB_PUBLIC_DATA.mkdir(parents=True, exist_ok=True)
@@ -59,6 +60,8 @@ def _load_dotenv(path: Path) -> None:
 
 _load_dotenv(ROOT / ".env")
 _load_dotenv(ROOT / ".env.local")
+_load_dotenv(PROJECT_ROOT / ".env")
+_load_dotenv(PROJECT_ROOT / ".env.local")
 
 DATABENTO_API_KEY = os.environ.get("DATABENTO_API_KEY", "")
 API_NINJAS_KEY = os.environ.get("API_NINJAS_KEY", "")

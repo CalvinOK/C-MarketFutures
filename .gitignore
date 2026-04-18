@@ -3,10 +3,8 @@
 **/.env.*.local
 !.env.example
 !**/.env.example
-try1/
-try2/
+api/try1/
+api/try2/
 .cache/
-web/node_modules/
-web/.next/
-/data/
-/logdata/
+website/node_modules/
+website/.next/

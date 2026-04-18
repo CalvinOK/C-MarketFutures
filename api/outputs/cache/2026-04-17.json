@@ -1,0 +1,49 @@
+{
+  "requested_date": "2026-04-17",
+  "resolved_as_of_date": "2026-04-02",
+  "cache_hit": false,
+  "refresh_reason": "fresh_compute",
+  "generated_at": "2026-04-18T17:14:57.960260+00:00",
+  "storage_backend": "",
+  "source": "xgboost_training_script",
+  "latest_price": 295.4,
+  "projections": [
+    {
+      "as_of_date": "2026-04-02",
+      "horizon_weeks": 4,
+      "current_price": 295.4,
+      "predicted_log_change": 0.054979484528303146,
+      "projected_price": 312.0956947190707,
+      "n_features_used": 45
+    },
+    {
+      "as_of_date": "2026-04-02",
+      "horizon_weeks": 12,
+      "current_price": 295.4,
+      "predicted_log_change": 0.22632160782814026,
+      "projected_price": 370.42536406521185,
+      "n_features_used": 30
+    },
+    {
+      "as_of_date": "2026-04-02",
+      "horizon_weeks": 26,
+      "current_price": 295.4,
+      "predicted_log_change": -0.05599798634648323,
+      "projected_price": 279.31282318070544,
+      "n_features_used": 33
+    },
+    {
+      "as_of_date": "2026-04-02",
+      "horizon_weeks": 52,
+      "current_price": 295.4,
+      "predicted_log_change": 0.16845442354679108,
+      "projected_price": 349.5983043961084,
+      "n_features_used": 28
+    }
+  ],
+  "metadata": {
+    "dataset_rows_used": 4702,
+    "feature_rows_used": 4702,
+    "weekly_path_rows": 26
+  }
+}
