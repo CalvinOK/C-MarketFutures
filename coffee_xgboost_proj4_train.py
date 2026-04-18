@@ -190,7 +190,7 @@ def add_macro_price_features(df: pd.DataFrame) -> pd.DataFrame:
             out[f"coffee_sharpe_{w}d"] = mu / sig * np.sqrt(252)
 
     if {"coffee_cum_logret_30d", "coffee_cum_logret_180d"}.issubset(out.columns):
-        out["coffee_momentum_acceleration"] = out["coffee_cum_logret_30d"] - out["coffee_cum_logret_180d"] / 3.0
+        out["coffee_momentum_acceleration"] = (out["coffee_cum_logret_30d"] - out["coffee_cum_logret_180d"]) / 3.0
 
     return out
 
@@ -655,7 +655,7 @@ def recursive_weekly_path(
     anchor_weight_start: float = 0.35,
     shock_cap_sigma: float = 1.25,
     noise_fraction: float = 0.70,
-    seed: int | None = None,
+    seed: int | None = RANDOM_STATE,
 ) -> pd.DataFrame:
     if 1 not in models:
         raise ValueError("Need a 1-week model for recursive rolling forecasts.")
@@ -831,7 +831,8 @@ def save_six_month_projection_plot(raw_df: pd.DataFrame, weekly_path: pd.DataFra
         return
 
     business_path = weekly_path_to_business_days(as_of_date, current_price, weekly_path)
-    historical_avg = float(history["coffee_c"].mean())
+    recent_history = history.loc[history["Date"] >= (as_of_date - pd.Timedelta(days=30))]
+    historical_avg = float((recent_history if not recent_history.empty else history)["coffee_c"].mean())
     projected_avg = float(business_path["projected_price"].mean())
 
     # Build confidence cone from weekly path sigma (annualised vol -> weekly vol)
@@ -874,7 +875,7 @@ def save_six_month_projection_plot(raw_df: pd.DataFrame, weekly_path: pd.DataFra
         linewidth=2.0,
         linestyle="-.",
         alpha=0.9,
-        label=f"Historical avg ({historical_avg:.1f}¢)",
+        label=f"Historical monthly avg ({historical_avg:.1f}¢)",
         zorder=2,
     )
     ax.axhline(
