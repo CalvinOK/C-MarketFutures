@@ -6,5 +6,5 @@
 api/try1/
 api/try2/
 .cache/
-website/node_modules/
-website/.next/
+web/node_modules/
+web/.next/
