@@ -8,8 +8,8 @@ export async function GET(request: Request) {
   const authError = requireInternalTokenIfConfigured(request)
   if (authError) return authError
 
-  const rateError = enforceRateLimit(request, 'snapshot', 120, 60_000)
+  const rateError = enforceRateLimit(request, 'brief', 60, 60_000)
   if (rateError) return rateError
 
-  return proxyMarketApiGet(request, '/snapshot')
+  return proxyMarketApiGet(request, '/brief')
 }

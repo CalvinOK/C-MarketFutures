@@ -43,8 +43,19 @@ type NewsApiItem = {
   category: string;
   text: string;
   source: string;
-  url: string;
+  url?: string;
   timestamp: string;
+};
+
+type ProjectedSpotApiResponse = {
+  format: "projected-spot-csv.v1";
+  files: {
+    history: string;
+    forecast: string;
+  };
+  asOfDate: string | null;
+  historyCsv: string;
+  forecastCsv: string;
 };
 
 type SucafinaBriefApiItem = {
@@ -284,8 +295,7 @@ function buildYAxisTicks(minValue: number, maxValue: number, count = 5): number[
 }
 
 export default function CoffeeFuturesSite() {
-  const historyCsvPath = "/data/coffee_xgb_proj4_history.csv";
-  const forecastCsvPath = "/data/coffee_xgb_proj4_rolling_path.csv";
+  const projectedSpotApiPath = "/api/projected-spot";
 
   const staticContracts = [
     {
@@ -380,27 +390,15 @@ export default function CoffeeFuturesSite() {
 
     async function loadChartData() {
       try {
-        const [historyResponse, pathResponse] = await Promise.all([
-          fetch(historyCsvPath),
-          fetch(forecastCsvPath),
-        ]);
+        const response = await fetch(projectedSpotApiPath, { cache: "no-store" });
 
-        if (!historyResponse.ok) {
-          throw new Error(
-            `Failed to load history data (${historyResponse.status})`,
-          );
+        if (!response.ok) {
+          throw new Error(`Failed to load projected spot API (${response.status})`);
         }
 
-        if (!pathResponse.ok) {
-          throw new Error(
-            `Failed to load forecast data (${pathResponse.status})`,
-          );
-        }
-
-        const [historyText, pathText] = await Promise.all([
-          historyResponse.text(),
-          pathResponse.text(),
-        ]);
+        const payload: ProjectedSpotApiResponse = await response.json();
+        const historyText = payload.historyCsv ?? "";
+        const pathText = payload.forecastCsv ?? "";
 
         const historyRows = parseHistoryCsv(historyText);
         const forecastRows = parseWeeklyPathCsv(pathText);
@@ -411,7 +409,7 @@ export default function CoffeeFuturesSite() {
           setDataError(
             historyRows.length > 0 && forecastRows.length > 0
               ? null
-              : "One or both public data files were empty.",
+              : "Projected spot API returned empty CSV data.",
           );
         }
       } catch (error) {
@@ -434,19 +432,18 @@ export default function CoffeeFuturesSite() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [projectedSpotApiPath]);
 
-  // Fetch contracts / news / snapshot from static JSON files produced by data_fetch.py.
-  // Falls back silently to static data if the files are not yet generated.
+  // Fetch contracts/news/snapshot/brief from API routes.
   useEffect(() => {
     let cancelled = false;
 
     async function loadLiveData() {
       const [contractsRes, newsRes, snapshotRes, briefRes] = await Promise.allSettled([
-        fetch("/data/contracts.json"),
-        fetch("/data/news.json"),
-        fetch("/data/snapshot.json"),
-        fetch("/data/roaster_brief.json"),
+        fetch("/api/contracts", { cache: "no-store" }),
+        fetch("/api/news", { cache: "no-store" }),
+        fetch("/api/snapshot", { cache: "no-store" }),
+        fetch("/api/brief", { cache: "no-store" }),
       ]);
 
       if (cancelled) return;

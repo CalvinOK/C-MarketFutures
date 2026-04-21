@@ -14,3 +14,4 @@ CACHE_PREFIX = os.getenv('CACHE_PREFIX', 'coffee-predictions')
 REFRESH_WEEKDAY = int(os.getenv('REFRESH_WEEKDAY', '4'))  # Friday=4
 DEFAULT_FORCE_ON_REFRESH_DAY = os.getenv('DEFAULT_FORCE_ON_REFRESH_DAY', 'true').lower() == 'true'
 ALLOW_LOCAL_FALLBACK = os.getenv('ALLOW_LOCAL_FALLBACK', 'true').lower() == 'true'
+DATA_FETCH_TIMEOUT_SECONDS = int(os.getenv('DATA_FETCH_TIMEOUT_SECONDS', '120'))
