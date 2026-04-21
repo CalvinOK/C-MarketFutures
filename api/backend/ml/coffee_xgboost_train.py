@@ -3,11 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 import warnings
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from sklearn.linear_model import Ridge
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from xgboost import XGBRegressor
 
 warnings.filterwarnings("ignore")
@@ -93,10 +90,16 @@ def evaluate(y_true: pd.Series | np.ndarray, y_pred: pd.Series | np.ndarray) -> 
     yp = yp[mask]
     if len(yt) == 0:
         return {"rmse": np.nan, "mae": np.nan, "r2": np.nan, "dir_acc": np.nan, "corr": np.nan}
+    mse = float(np.mean((yt - yp) ** 2))
+    mae = float(np.mean(np.abs(yt - yp)))
+    ss_res = float(np.sum((yt - yp) ** 2))
+    y_mean = float(np.mean(yt))
+    ss_tot = float(np.sum((yt - y_mean) ** 2))
+    r2 = float(1.0 - ss_res / ss_tot) if ss_tot > 0 else np.nan
     return {
-        "rmse": float(np.sqrt(mean_squared_error(yt, yp))),
-        "mae": float(mean_absolute_error(yt, yp)),
-        "r2": float(r2_score(yt, yp)) if len(yt) > 1 else np.nan,
+        "rmse": float(np.sqrt(mse)),
+        "mae": mae,
+        "r2": r2,
         "dir_acc": float(np.mean(np.sign(yt) == np.sign(yp))),
         "corr": float(np.corrcoef(yt, yp)[0, 1]) if len(yt) > 1 else np.nan,
     }
@@ -541,15 +544,11 @@ def walk_forward_validate(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame,
             lo, hi = np.nanpercentile(y_train, 2), np.nanpercentile(y_train, 98)
             pred_xgb_clip = np.clip(pred_xgb, lo, hi)
 
-            ridge = Ridge(alpha=100.0)
-            ridge.fit(X_train, y_train, sample_weight=weights)
-            pred_ridge = ridge.predict(X_test)
             pred_zero = np.zeros(len(y_test), dtype=float)
             pred_trailing = test["trailing_baseline"].to_numpy(dtype=float)
 
             for model_name, pred in [
                 ("xgb", pred_xgb_clip),
-                ("ridge", pred_ridge),
                 ("zero", pred_zero),
                 ("trailing", pred_trailing),
             ]:
@@ -569,7 +568,6 @@ def walk_forward_validate(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame,
                     "fold": fold + 1,
                     "y_true": float(y_test.iloc[i]),
                     "y_pred_xgb": float(pred_xgb_clip[i]),
-                    "y_pred_ridge": float(pred_ridge[i]),
                     "y_pred_zero": float(pred_zero[i]),
                     "y_pred_trailing": float(pred_trailing[i]) if np.isfinite(pred_trailing[i]) else np.nan,
                     "n_features_used": len(survived),
@@ -810,6 +808,11 @@ def weekly_path_to_business_days(as_of_date: pd.Timestamp, current_price: float,
 
 
 def save_six_month_projection_plot(raw_df: pd.DataFrame, weekly_path: pd.DataFrame, output_path: Path) -> None:
+    try:
+        import matplotlib.pyplot as plt
+    except Exception:
+        return
+
     if weekly_path.empty:
         return
 
