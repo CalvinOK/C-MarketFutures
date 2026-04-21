@@ -144,7 +144,7 @@ def projected_spot():
     run_refresh = request.args.get("run", "false").lower() in {"1", "true", "yes"}
     script = request.args.get(
         "script",
-        os.getenv("PROJECTION_SCRIPT", "scripts/run_old_projection_pipeline.py"),
+        os.getenv("PROJECTION_SCRIPT", ""),
     )
 
     history_path = _first_existing_path("coffee_xgb_proj4_history.csv", CSV_DATA_DIRS)
@@ -202,7 +202,7 @@ def contracts():
     run_refresh = request.args.get("run", "false").lower() in {"1", "true", "yes"}
     script = request.args.get(
         "script",
-        os.getenv("CONTRACTS_SCRIPT", "scripts/run_old_contracts_refresh.py"),
+        os.getenv("CONTRACTS_SCRIPT", ""),
     )
     refresh_result = None
 
