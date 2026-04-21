@@ -11,3 +11,5 @@ website/.next/
 old/
 .vercel
 .env*.local
+api/data/
+api/logdata/
