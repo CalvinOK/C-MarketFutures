@@ -8,3 +8,4 @@ api/try2/
 .cache/
 website/node_modules/
 website/.next/
+old/

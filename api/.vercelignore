@@ -1,8 +1,0 @@
-try1/
-try2/
-scripts/
-outputs/
-__pycache__/
-*.pyc
-*.pyo
-.DS_Store
