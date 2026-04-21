@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
 
+type MarketApiFallback = (request: Request) => Promise<NextResponse | null>
+
 const DEFAULT_LOCAL_API_BASE = 'http://127.0.0.1:8000'
 
 function getConfiguredMarketApiBaseUrl(): string | null {
@@ -25,7 +27,11 @@ function getMarketApiAuthHeader(): string | null {
   return `Bearer ${token}`
 }
 
-export async function proxyMarketApiGet(request: Request, endpointPath: string): Promise<NextResponse> {
+export async function proxyMarketApiGet(
+  request: Request,
+  endpointPath: string,
+  fallback?: MarketApiFallback,
+): Promise<NextResponse> {
   const marketApiBaseUrl = getConfiguredMarketApiBaseUrl()
   if (!marketApiBaseUrl) {
     return NextResponse.json(
@@ -58,6 +64,13 @@ export async function proxyMarketApiGet(request: Request, endpointPath: string):
 
     const text = await upstream.text()
     const contentType = upstream.headers.get('content-type') || 'application/json; charset=utf-8'
+
+    if (upstream.status === 404 && fallback) {
+      const fallbackResponse = await fallback(request)
+      if (fallbackResponse) {
+        return fallbackResponse
+      }
+    }
 
     return new NextResponse(text, {
       status: upstream.status,

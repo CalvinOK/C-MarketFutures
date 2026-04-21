@@ -25,3 +25,15 @@ export async function readPublicDataJson<T>(fileName: string): Promise<T | null>
     return null
   }
 }
+
+export function extractAsOfDateFromCsv(csvText: string): string | null {
+  const lines = csvText.split(/\r?\n/).filter((line) => line.trim())
+  if (lines.length < 2) return null
+
+  const header = lines[0].split(',').map((value) => value.trim().toLowerCase())
+  const asOfIndex = header.indexOf('as_of_date')
+  if (asOfIndex < 0) return null
+
+  const firstRow = lines[1].split(',').map((value) => value.trim())
+  return firstRow[asOfIndex] || null
+}

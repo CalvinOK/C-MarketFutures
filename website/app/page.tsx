@@ -596,6 +596,19 @@ export default function CoffeeFuturesSite() {
       ]
     : staticStats;
 
+  const visibleHistory = useMemo(() => {
+    if (history.length === 0) {
+      return [] as HistoryRow[];
+    }
+
+    const latestHistoryDate = new Date(history[history.length - 1].date);
+    const cutoffDate = new Date(latestHistoryDate);
+    cutoffDate.setFullYear(cutoffDate.getFullYear() - 1);
+
+    const filteredHistory = history.filter((row) => new Date(row.date) >= cutoffDate);
+    return filteredHistory.length > 0 ? filteredHistory : history;
+  }, [history]);
+
   const chart = useMemo(() => {
     const width = 920;
     const height = 360;
@@ -605,20 +618,26 @@ export default function CoffeeFuturesSite() {
     const top = 14;
     const bottom = 52;
 
-    if (history.length === 0 || forecastPath.length === 0) {
+    if (visibleHistory.length === 0 || forecastPath.length === 0) {
       return null;
     }
 
-    const historyDates = history.map((row) => new Date(row.date));
+    const historyDates = visibleHistory.map((row) => new Date(row.date));
     const forecastDates = forecastPath.map((row) => new Date(row.date));
     const allDates = [...historyDates, ...forecastDates];
 
-    const minTime = Math.min(...allDates.map((date) => date.getTime()));
-    const maxTime = Math.max(...allDates.map((date) => date.getTime()));
+    const monthKeys = Array.from(
+      new Set(
+        allDates.map((date) => `${date.getFullYear()}-${date.getMonth()}`),
+      ),
+    );
+    const monthKeyToIndex = new Map(
+      monthKeys.map((key, index) => [key, index] as const),
+    );
 
     const msPerWeek = 7 * 24 * 60 * 60 * 1000;
     const asOfDate = new Date(forecastPath[0].asOfDate);
-    const currentPrice = history[history.length - 1].price;
+    const currentPrice = visibleHistory[visibleHistory.length - 1].price;
     const sigmaWeekly = stddev(
       forecastPath.map((row) => row.predictedWeeklyLogReturn),
     );
@@ -641,7 +660,7 @@ export default function CoffeeFuturesSite() {
     });
 
     const priceValues = [
-      ...history.map((row) => row.price),
+      ...visibleHistory.map((row) => row.price),
       ...forecastPath.map((row) => row.projectedPrice),
       ...forecastBands.flatMap((band) => [band.upper, band.lower]),
     ];
@@ -656,18 +675,29 @@ export default function CoffeeFuturesSite() {
     const innerWidth = width - left - right;
     const innerHeight = height - top - bottom;
 
-    const toX = (date: Date) =>
-      left + ((date.getTime() - minTime) / (maxTime - minTime || 1)) * innerWidth;
+    const toMonthX = (date: Date) => {
+      const monthKey = `${date.getFullYear()}-${date.getMonth()}`;
+      const monthIndex = monthKeyToIndex.get(monthKey) ?? 0;
+      const daysInMonth = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+      const monthFraction =
+        (date.getDate() - 1 +
+          date.getHours() / 24 +
+          date.getMinutes() / (24 * 60) +
+          date.getSeconds() / (24 * 60 * 60)) /
+        Math.max(daysInMonth, 1);
+
+      return left + ((monthIndex + monthFraction) / Math.max(monthKeys.length, 1)) * innerWidth;
+    };
 
     const toY = (price: number) =>
       top + (1 - (price - paddedMin) / priceRange) * innerHeight;
 
-    const historyPoints: ChartPoint[] = history.map((row) => {
+    const historyPoints: ChartPoint[] = visibleHistory.map((row) => {
       const date = new Date(row.date);
 
       return {
         date,
-        x: toX(date),
+        x: toMonthX(date),
         y: toY(row.price),
         label: date.toLocaleDateString("en-US", { month: "short" }),
         projectedPrice: row.price,
@@ -679,7 +709,7 @@ export default function CoffeeFuturesSite() {
 
       return {
         date,
-        x: toX(date),
+        x: toMonthX(date),
         y: toY(row.projectedPrice),
         label: date.toLocaleDateString("en-US", { month: "short" }),
         projectedPrice: row.projectedPrice,
@@ -687,26 +717,24 @@ export default function CoffeeFuturesSite() {
     });
 
     const bandPolygon = [
-      ...forecastBands.map((band) => `${toX(band.date)},${toY(band.upper)}`),
+      ...forecastBands.map((band) => `${toMonthX(band.date)},${toY(band.upper)}`),
       ...forecastBands
         .slice()
         .reverse()
-        .map((band) => `${toX(band.date)},${toY(band.lower)}`),
+        .map((band) => `${toMonthX(band.date)},${toY(band.lower)}`),
     ].join(" ");
 
-    const monthTicks: MonthTick[] = [];
-    let lastMonthKey = "";
+    const monthTicks: MonthTick[] = monthKeys.map((key, index) => {
+      const [yearString, monthString] = key.split("-");
+      const year = Number(yearString);
+      const month = Number(monthString);
+      const date = new Date(year, month, 1);
 
-    allDates.forEach((date) => {
-      const key = `${date.getFullYear()}-${date.getMonth()}`;
-      if (key !== lastMonthKey) {
-        monthTicks.push({
-          key,
-          x: toX(date),
-          label: date.toLocaleDateString("en-US", { month: "short" }),
-        });
-        lastMonthKey = key;
-      }
+      return {
+        key,
+        x: left + (((index + 0.5) / Math.max(monthKeys.length, 1)) * innerWidth),
+        label: date.toLocaleDateString("en-US", { month: "short" }),
+      };
     });
 
     const filteredTicks: MonthTick[] = [];
@@ -734,11 +762,11 @@ export default function CoffeeFuturesSite() {
     // Calculate mean prices
     // 1-month rolling mean: use last 30 days of history (~20 trading days)
     const historyMeanPrice =
-      history.length > 0
-        ? history
+      visibleHistory.length > 0
+        ? visibleHistory
             .slice(-30)
             .reduce((sum, row) => sum + row.price, 0) /
-          Math.min(30, history.length)
+          Math.min(30, visibleHistory.length)
         : 0;
     const historyMeanY = toY(historyMeanPrice);
 
@@ -772,8 +800,9 @@ export default function CoffeeFuturesSite() {
       dividerX: historyPoints[historyPoints.length - 1].x,
       plotBottom: height - bottom,
       plotRight: width - right,
+      toMonthX,
     };
-  }, [history, forecastPath]);
+  }, [visibleHistory, forecastPath]);
 
   const hoveredPoint = chart
     ? hoveredHistoryIndex !== null
@@ -784,13 +813,13 @@ export default function CoffeeFuturesSite() {
     : null;
 
   const chartDownloadCsv = useMemo(() => {
-    if (history.length === 0 && forecastPath.length === 0) {
+    if (visibleHistory.length === 0 && forecastPath.length === 0) {
       return "";
     }
 
     const lines = [
       "series,date,price,asOfDate,stepWeek,predictedWeeklyLogReturn,anchorWeeklyLogReturn,raw1wLogReturn",
-      ...history.map(
+      ...visibleHistory.map(
         (row) =>
           `history,${row.date},${row.price.toFixed(6)},,,,,`,
       ),
@@ -801,7 +830,7 @@ export default function CoffeeFuturesSite() {
     ];
 
     return lines.join("\n");
-  }, [history, forecastPath]);
+  }, [visibleHistory, forecastPath]);
 
   const handleDownloadChartData = () => {
     if (!chartDownloadCsv) {
@@ -1377,7 +1406,7 @@ export default function CoffeeFuturesSite() {
                     </div>
                     <div
                       className={`mt-2 text-xl font-semibold leading-tight tracking-tight sm:text-2xl ${
-                        stat.label === "Shape" ? "break-all" : ""
+                        stat.label === "Shape" ? "whitespace-nowrap text-lg sm:text-xl" : ""
                       } ${
                         stat.featured ? "text-white" : "text-[var(--bond-blue)]"
                       }`}
