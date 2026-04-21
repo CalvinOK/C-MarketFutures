@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from flask import Flask, jsonify, request
 
-from .coffee_service import (
+from coffee_service import (
     build_health_payload,
     build_market_refresh_payload,
     build_root_payload,
