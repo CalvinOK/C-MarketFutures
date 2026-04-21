@@ -89,7 +89,8 @@ def _file_is_stale_since_last_friday(path: Path, cutoff_friday: date) -> bool:
 def _maybe_run_refresh_script(script_path: str | None):
     if not script_path:
         return None
-    return run_local_script(script_path, timeout_seconds=180)
+    timeout_seconds = int(os.getenv("REFRESH_SCRIPT_TIMEOUT_SECONDS", "1800"))
+    return run_local_script(script_path, timeout_seconds=timeout_seconds)
 
 
 def _require_file(file_name: str, candidate_dirs: list[Path]) -> Path:
@@ -141,7 +142,10 @@ def projected_spot():
 
     refresh_result = None
     run_refresh = request.args.get("run", "false").lower() in {"1", "true", "yes"}
-    script = request.args.get("script", os.getenv("PROJECTION_SCRIPT", ""))
+    script = request.args.get(
+        "script",
+        os.getenv("PROJECTION_SCRIPT", "scripts/run_old_projection_pipeline.py"),
+    )
 
     history_path = _first_existing_path("coffee_xgb_proj4_history.csv", CSV_DATA_DIRS)
     forecast_path = _first_existing_path("coffee_xgb_proj4_rolling_path.csv", CSV_DATA_DIRS)
@@ -196,7 +200,10 @@ def contracts():
         return jsonify(cached)
 
     run_refresh = request.args.get("run", "false").lower() in {"1", "true", "yes"}
-    script = request.args.get("script", os.getenv("CONTRACTS_SCRIPT", ""))
+    script = request.args.get(
+        "script",
+        os.getenv("CONTRACTS_SCRIPT", "scripts/run_old_contracts_refresh.py"),
+    )
     refresh_result = None
 
     contracts_path = _first_existing_path("contracts.json", JSON_DATA_DIRS)
