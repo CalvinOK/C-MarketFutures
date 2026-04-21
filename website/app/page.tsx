@@ -139,6 +139,64 @@ function formatNewsDate(timestamp: string): string | null {
   }).format(date);
 }
 
+async function fetchJsonWithFallback<T>(apiPath: string, fallbackPath: string): Promise<T> {
+  const apiResponse = await fetch(apiPath, { cache: "no-store" });
+  if (apiResponse.ok) {
+    return apiResponse.json() as Promise<T>;
+  }
+
+  const fallbackResponse = await fetch(fallbackPath, { cache: "no-store" });
+  if (!fallbackResponse.ok) {
+    throw new Error(`Failed to load ${apiPath} (${apiResponse.status})`);
+  }
+
+  return fallbackResponse.json() as Promise<T>;
+}
+
+function extractAsOfDateFromCsv(csvText: string): string | null {
+  const lines = csvText.split(/\r?\n/).filter((line) => line.trim());
+  if (lines.length < 2) return null;
+
+  const header = lines[0].split(",").map((value) => value.trim().toLowerCase());
+  const asOfIndex = header.indexOf("as_of_date");
+  if (asOfIndex < 0) return null;
+
+  const firstRow = lines[1].split(",").map((value) => value.trim());
+  return firstRow[asOfIndex] || null;
+}
+
+async function fetchProjectedSpotWithFallback(): Promise<ProjectedSpotApiResponse> {
+  const apiResponse = await fetch("/api/projected-spot", { cache: "no-store" });
+  if (apiResponse.ok) {
+    return apiResponse.json() as Promise<ProjectedSpotApiResponse>;
+  }
+
+  const [historyResponse, forecastResponse] = await Promise.all([
+    fetch("/data/coffee_xgb_proj4_history.csv", { cache: "no-store" }),
+    fetch("/data/coffee_xgb_proj4_rolling_path.csv", { cache: "no-store" }),
+  ]);
+
+  if (!historyResponse.ok || !forecastResponse.ok) {
+    throw new Error(`Failed to load projected spot API (${apiResponse.status})`);
+  }
+
+  const [historyCsv, forecastCsv] = await Promise.all([
+    historyResponse.text(),
+    forecastResponse.text(),
+  ]);
+
+  return {
+    format: "projected-spot-csv.v1",
+    files: {
+      history: "coffee_xgb_proj4_history.csv",
+      forecast: "coffee_xgb_proj4_rolling_path.csv",
+    },
+    asOfDate: extractAsOfDateFromCsv(forecastCsv),
+    historyCsv,
+    forecastCsv,
+  };
+}
+
 type ChartPoint = {
   date: Date;
   x: number;
@@ -295,8 +353,6 @@ function buildYAxisTicks(minValue: number, maxValue: number, count = 5): number[
 }
 
 export default function CoffeeFuturesSite() {
-  const projectedSpotApiPath = "/api/projected-spot";
-
   const staticContracts = [
     {
       month: "May 2026",
@@ -390,13 +446,7 @@ export default function CoffeeFuturesSite() {
 
     async function loadChartData() {
       try {
-        const response = await fetch(projectedSpotApiPath, { cache: "no-store" });
-
-        if (!response.ok) {
-          throw new Error(`Failed to load projected spot API (${response.status})`);
-        }
-
-        const payload: ProjectedSpotApiResponse = await response.json();
+        const payload = await fetchProjectedSpotWithFallback();
         const historyText = payload.historyCsv ?? "";
         const pathText = payload.forecastCsv ?? "";
 
@@ -432,7 +482,7 @@ export default function CoffeeFuturesSite() {
     return () => {
       cancelled = true;
     };
-  }, [projectedSpotApiPath]);
+  }, []);
 
   // Fetch contracts/news/snapshot/brief from API routes.
   useEffect(() => {
@@ -440,17 +490,16 @@ export default function CoffeeFuturesSite() {
 
     async function loadLiveData() {
       const [contractsRes, newsRes, snapshotRes, briefRes] = await Promise.allSettled([
-        fetch("/api/contracts", { cache: "no-store" }),
-        fetch("/api/news", { cache: "no-store" }),
-        fetch("/api/snapshot", { cache: "no-store" }),
-        fetch("/api/brief", { cache: "no-store" }),
+        fetchJsonWithFallback<ContractApiRow[]>("/api/contracts", "/data/contracts.json"),
+        fetchJsonWithFallback<NewsApiItem[]>("/api/news", "/data/news.json"),
+        fetchJsonWithFallback<SnapshotData>("/api/snapshot", "/data/snapshot.json"),
+        fetchJsonWithFallback<SucafinaBriefApiItem>("/api/brief", "/data/roaster_brief.json"),
       ]);
 
       if (cancelled) return;
 
-      if (contractsRes.status === "fulfilled" && contractsRes.value.ok) {
-        const data: ContractApiRow[] = await contractsRes.value.json();
-        if (cancelled) return;
+      if (contractsRes.status === "fulfilled") {
+        const data = contractsRes.value;
         if (Array.isArray(data) && data.length > 0) {
           setLiveContracts(data);
           setContractsUnavailable(false);
@@ -463,23 +512,20 @@ export default function CoffeeFuturesSite() {
         setContractsUnavailable(true);
       }
 
-      if (newsRes.status === "fulfilled" && newsRes.value.ok) {
-        const data: NewsApiItem[] = await newsRes.value.json();
-        if (cancelled) return;
+      if (newsRes.status === "fulfilled") {
+        const data = newsRes.value;
         if (Array.isArray(data) && data.length > 0) setLiveNews(data);
       }
 
-      if (snapshotRes.status === "fulfilled" && snapshotRes.value.ok) {
-        const data: SnapshotData = await snapshotRes.value.json();
-        if (cancelled) return;
+      if (snapshotRes.status === "fulfilled") {
+        const data = snapshotRes.value;
         if (data?.frontPrice) {
           setLiveSnapshot(data);
         }
       }
 
-      if (briefRes.status === "fulfilled" && briefRes.value.ok) {
-        const data: SucafinaBriefApiItem = await briefRes.value.json();
-        if (cancelled) return;
+      if (briefRes.status === "fulfilled") {
+        const data = briefRes.value;
         if (data?.headline && data?.source_report) {
           setLiveSucafinaBrief(data);
         }
