@@ -1,15 +1,34 @@
+.DS_Store
+**/.DS_Store
+
+# Environment files
 .env
+.env.local
+.env*.local
 **/.env.local
 **/.env.*.local
 !.env.example
 !**/.env.example
-api/try1/
-api/try2/
+
+# Python cache and local env
+__pycache__/
+**/__pycache__/
+*.py[cod]
+.venv/
 .cache/
+
+# Frontend build artifacts
 website/node_modules/
 website/.next/
+
+# Deployment metadata
+.vercel/
+
+# Legacy and scratch folders
 old/
-.vercel
-.env*.local
+api/try1/
+api/try2/
+
+# Generated API data outputs
 api/data/
 api/logdata/
