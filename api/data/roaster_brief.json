@@ -1,12 +1,12 @@
 {
-  "headline": "Coffee Market Brief \u2014 8 April 2026",
-  "source_report": "Sucafina Market Report \u2014 8 April 2026",
+  "headline": "Coffee Market Brief \u2014 13 April 2026",
+  "source_report": "Sucafina Market Report \u2014 13 April 2026",
   "report_url": "https://sucafina.com/na/lp/market-report",
-  "market_bias": "Bearish / Downside Risk",
+  "market_bias": "Neutral / Tactically Cautious",
   "key_takeaways": [
-    "The latest Sucafina report says the market recently finished around 286 USc/lb.",
-    "The board has broken below roughly 290 USc/lb support, which keeps short-term downside pressure in play.",
-    "The report points to a possible near-term test around $2.75/lb."
+    "The front month is around 300.65 USc/lb, with backwardation still signaling some nearby tightness despite the weaker trend.",
+    "Recent coffee-specific news is mixed: India output estimates are a mild supply headwind, while broader commodity headlines keep volatility elevated.",
+    "The market needs to hold the $3.00/lb area on a closing basis; a break lower would point back toward the low-290s."
   ],
   "news_drivers": [
     {
@@ -32,26 +32,27 @@
     }
   ],
   "risks": [
-    "Geopolitical headlines could trigger broad commodity volatility and fast intraday swings in coffee.",
-    "Macro risk-off flows may drive coffee lower even if coffee-specific fundamentals do not worsen.",
-    "A break of support can attract technical selling and extend downside before value buyers step in.",
-    "Export or logistics disruptions can lift replacement costs even if futures soften."
+    "Broader risk-off moves could push coffee through support even if coffee-specific fundamentals stay stable.",
+    "A failure to hold the $3.00/lb zone may trigger technical selling toward the low-290s.",
+    "Export or logistics disruptions can still move differentials independently of futures.",
+    "Weather headlines can quickly shift the tone if Brazil or origin risk becomes dominant again."
   ],
   "roaster_actions": [
-    "Avoid fixing large volumes all at once; scale coverage in tranches while the board is probing lower.",
-    "Separate flat-price decisions from differential decisions, because physical replacement costs can stay firm even when futures weaken.",
-    "Set buy triggers around key technical levels so you can respond quickly if the market flushes lower or rebounds sharply.",
-    "Use the current front-month snapshot of 321.35 with your own margin targets before extending forward cover."
+    "Keep hedges staged in tranches while the market decides whether $3.00/lb holds as support.",
+    "Use any rebound into strength to improve coverage rather than waiting for a full trend reversal.",
+    "Recheck physical replacement costs against the futures move before extending forward cover.",
+    "Monitor the front-month snapshot of 300.65 before adding protection.",
+    "Stay alert to supply or weather headlines that could abruptly tighten the tone again."
   ],
   "contract_snapshot": {
-    "frontPrice": 321.35,
-    "curveShape": "Contango",
-    "totalVolume": 0,
-    "totalOpenInterest": 0,
+    "frontPrice": 300.65,
+    "curveShape": "Backwardation",
+    "totalVolume": 54715,
+    "totalOpenInterest": 160311,
     "frontSymbol": "KCK26",
-    "asOf": "2026-04-13T04:52:26.189771+00:00"
+    "asOf": "2026-04-13T08:20:54.940173+00:00"
   },
-  "raw_report": "This past week, coffee futures basis the most active May contract fell 12.35 cents from Tuesday to Tuesday to end at 286 US cents per pound. Most of this price action took place today at the time of writing. I expected last week for the market to reestablish a range of $2.90 to $3.00/lb for the week and this is what broadly occurred as geopolitically based speculative inflows balanced against increased selling interest from origin. Today's price action is a bit dramatic and began with a general risk-off environment following the US President's escalatory and inflammatory notes regarding the ongoing conflict with Iran. A more prolonged war can result in a broader commodity sell-off due to inflationary pressures caused by higher energy prices, ultimately impacting consumer spending. From the initial wave down, we broke below a critical 290 USc/lb support level, which indicates more selling from momentum funds nearby. As we look toward next week, most of the risk hinges on the Iran conflict, with further escalation being negative for prices. In other commodity news, Cocoa prices, which have been recently compared to coffee, have fallen to 136 US cents/lb, showing how brutal Bear cycles can become once supply concerns ease. My estimate for this week is for the market to try to test resistance at $2.75/lb.",
-  "confidence": "Medium-High",
-  "generated_at": "2026-04-13T04:52:27.138980+00:00"
+  "raw_report": "Coffee futures moved lower into mid-April, with the active May contract around 300.65 US cents per pound and the curve in backwardation. That keeps nearby supply tight enough to support the front end, but the market is still trading defensively after the recent break from the low-320s. The latest news flow is mixed: India output estimates are a modest supply headwind, while general commodity headlines and weather risk keep volatility elevated. For now, the market needs to hold the $3.00/lb area on a closing basis; a decisive break lower would open the door back toward the low-290s.",
+  "confidence": "Medium",
+  "generated_at": "2026-04-13T08:21:00+00:00"
 }
