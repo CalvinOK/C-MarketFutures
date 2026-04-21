@@ -1,6 +1,2 @@
+# Runtime dependencies for the deployed Flask API.
 Flask>=3.0.0
-numpy>=1.24
-pandas>=2.0
-requests>=2.31
-xgboost>=2.0
-matplotlib>=3.7

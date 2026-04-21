@@ -1,5 +1,7 @@
 # Coffee spot price projection with XGBoost
 
+The deployed Flask API uses the lightweight dependencies in `api/requirements.txt`. The offline refresh and training scripts rely on the heavier scientific stack in `api/requirements-offline.txt`.
+
 This script is designed for the weekly output files created by your uploaded data-prep script, especially:
 
 - `kc_weekly_with_fx_cot_weather_overlap_only.csv`
