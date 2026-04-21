@@ -6,8 +6,9 @@ import sys
 API_ROOT = Path(__file__).resolve().parents[1]
 
 
-def run_local_script(relative_script_path: str, timeout_seconds: int = 30) -> dict:
-    script_path = API_ROOT / relative_script_path
+def run_local_script(script_path_input: str, timeout_seconds: int = 30) -> dict:
+    raw_path = Path(script_path_input)
+    script_path = raw_path if raw_path.is_absolute() else (API_ROOT / raw_path).resolve()
 
     if not script_path.exists():
         return {
