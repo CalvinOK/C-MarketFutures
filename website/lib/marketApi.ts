@@ -2,12 +2,21 @@ import { NextResponse } from 'next/server'
 
 const DEFAULT_LOCAL_API_BASE = 'http://127.0.0.1:8000'
 
-function getMarketApiBaseUrl(): string {
-  const raw = process.env.MARKET_API_BASE_URL?.trim()
+function getConfiguredMarketApiBaseUrl(): string | null {
+  const raw =
+    process.env.MARKET_API_BASE_URL?.trim() ||
+    process.env.NEXT_PUBLIC_MARKET_API_BASE_URL?.trim()
+
   if (raw && raw.length > 0) {
     return raw.replace(/\/$/, '')
   }
-  return DEFAULT_LOCAL_API_BASE
+
+  // In local dev, preserve the old default for convenience.
+  if (process.env.NODE_ENV !== 'production') {
+    return DEFAULT_LOCAL_API_BASE
+  }
+
+  return null
 }
 
 function getMarketApiAuthHeader(): string | null {
@@ -17,8 +26,20 @@ function getMarketApiAuthHeader(): string | null {
 }
 
 export async function proxyMarketApiGet(request: Request, endpointPath: string): Promise<NextResponse> {
+  const marketApiBaseUrl = getConfiguredMarketApiBaseUrl()
+  if (!marketApiBaseUrl) {
+    return NextResponse.json(
+      {
+        error: 'Market API base URL is not configured',
+        detail:
+          'Set MARKET_API_BASE_URL (or NEXT_PUBLIC_MARKET_API_BASE_URL) in the deployment environment.',
+      },
+      { status: 500 },
+    )
+  }
+
   const requestUrl = new URL(request.url)
-  const upstreamUrl = `${getMarketApiBaseUrl()}${endpointPath}${requestUrl.search}`
+  const upstreamUrl = `${marketApiBaseUrl}${endpointPath}${requestUrl.search}`
 
   const headers: HeadersInit = {
     Accept: 'application/json',
