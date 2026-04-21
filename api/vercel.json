@@ -1,7 +1,8 @@
 {
 	"functions": {
 		"index.py": {
-			"maxDuration": 60
+			"maxDuration": 60,
+			"excludeFiles": "{try1/**,try2/**,scripts/**,outputs/**,**/__pycache__/**,**/*.pyc,**/*.pyo,.DS_Store,data/**/*.parquet,data/**/*.nc,logdata/**/*.parquet}"
 		}
 	}
 }
