@@ -487,13 +487,17 @@ export default function CoffeeFuturesSite() {
   // Fetch contracts/news/snapshot/brief from API routes.
   useEffect(() => {
     let cancelled = false;
+    let firstLoad = true;
 
     async function loadLiveData() {
+      const refreshQuery = firstLoad ? "?run=true" : "";
+      firstLoad = false;
+
       const [contractsRes, newsRes, snapshotRes, briefRes] = await Promise.allSettled([
-        fetchJsonWithFallback<ContractApiRow[]>("/api/contracts", "/data/contracts.json"),
-        fetchJsonWithFallback<NewsApiItem[]>("/api/news", "/data/news.json"),
-        fetchJsonWithFallback<SnapshotData>("/api/snapshot", "/data/snapshot.json"),
-        fetchJsonWithFallback<SucafinaBriefApiItem>("/api/brief", "/data/roaster_brief.json"),
+        fetchJsonWithFallback<ContractApiRow[]>(`/api/contracts${refreshQuery}`, "/data/contracts.json"),
+        fetchJsonWithFallback<NewsApiItem[]>(`/api/news${refreshQuery}`, "/data/news.json"),
+        fetchJsonWithFallback<SnapshotData>(`/api/snapshot${refreshQuery}`, "/data/snapshot.json"),
+        fetchJsonWithFallback<SucafinaBriefApiItem>(`/api/brief${refreshQuery}`, "/data/roaster_brief.json"),
       ]);
 
       if (cancelled) return;
@@ -1289,9 +1293,14 @@ export default function CoffeeFuturesSite() {
                     Compact contract cards
                   </p>
                 </div>
-                <div className={`rounded-full border px-3 py-1 text-xs font-medium ${isLiveData ? "border-green-200 bg-green-50 text-green-700" : contractsUnavailable ? "border-[var(--line)] bg-white text-[var(--muted)]" : "border-[var(--line-strong)] bg-[var(--prasad-purple)]/18 text-[var(--bond-blue)]"}`}>
+                <a
+                  href="/api/contracts"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`rounded-full border px-3 py-1 text-xs font-medium transition hover:border-[var(--bond-blue)]/35 hover:bg-[var(--baby-blue)]/22 ${isLiveData ? "border-green-200 bg-green-50 text-green-700" : contractsUnavailable ? "border-[var(--line)] bg-white text-[var(--muted)]" : "border-[var(--line-strong)] bg-[var(--prasad-purple)]/18 text-[var(--bond-blue)]"}`}
+                >
                   {isLiveData ? "Live" : contractsUnavailable ? "N/A" : "Delayed demo"}
-                </div>
+                </a>
               </div>
 
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -1428,9 +1437,14 @@ export default function CoffeeFuturesSite() {
                     Core futures metrics at a glance
                   </p>
                 </div>
-                <div className="rounded-full border border-[var(--line-strong)] bg-white px-3 py-1 text-xs font-medium text-[var(--bond-blue)]">
+                <a
+                  href="/api/snapshot"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="rounded-full border border-[var(--line-strong)] bg-white px-3 py-1 text-xs font-medium text-[var(--bond-blue)] transition hover:border-[var(--bond-blue)]/35 hover:bg-[var(--baby-blue)]/22"
+                >
                   Live summary
-                </div>
+                </a>
               </div>
 
               <div className="mt-4 grid grid-cols-2 gap-3">

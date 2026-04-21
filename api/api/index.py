@@ -195,11 +195,11 @@ def projected_spot():
 @app.route("/contracts", methods=["GET"])
 def contracts():
     cutoff_friday = _last_friday(datetime.now(UTC).date())
+    run_refresh = request.args.get("run", "false").lower() in {"1", "true", "yes"}
     cached = _read_cached("contracts", cutoff_friday)
-    if isinstance(cached, list):
+    if isinstance(cached, list) and not run_refresh:
         return jsonify(cached)
 
-    run_refresh = request.args.get("run", "false").lower() in {"1", "true", "yes"}
     script = request.args.get(
         "script",
         os.getenv("CONTRACTS_SCRIPT", ""),
@@ -237,9 +237,19 @@ def contracts():
 @app.route("/snapshot", methods=["GET"])
 def snapshot():
     cutoff_friday = _last_friday(datetime.now(UTC).date())
+    run_refresh = request.args.get("run", "false").lower() in {"1", "true", "yes"}
     cached = _read_cached("snapshot", cutoff_friday)
-    if isinstance(cached, dict):
+    if isinstance(cached, dict) and not run_refresh:
         return jsonify(cached)
+
+    if run_refresh:
+        script = request.args.get(
+            "script",
+            os.getenv("CONTRACTS_SCRIPT", ""),
+        )
+        refresh_result = _maybe_run_refresh_script(script)
+        if refresh_result and not refresh_result.get("ok", False):
+            return jsonify({"error": "Snapshot refresh script failed", "detail": refresh_result}), 500
 
     try:
         path = _require_file("snapshot.json", JSON_DATA_DIRS)
@@ -260,9 +270,19 @@ def snapshot():
 @app.route("/news", methods=["GET"])
 def news():
     cutoff_friday = _last_friday(datetime.now(UTC).date())
+    run_refresh = request.args.get("run", "false").lower() in {"1", "true", "yes"}
     cached = _read_cached("news", cutoff_friday)
-    if isinstance(cached, list):
+    if isinstance(cached, list) and not run_refresh:
         return jsonify(cached)
+
+    if run_refresh:
+        script = request.args.get(
+            "script",
+            os.getenv("CONTRACTS_SCRIPT", ""),
+        )
+        refresh_result = _maybe_run_refresh_script(script)
+        if refresh_result and not refresh_result.get("ok", False):
+            return jsonify({"error": "News refresh script failed", "detail": refresh_result}), 500
 
     try:
         path = _require_file("news.json", JSON_DATA_DIRS)
@@ -288,9 +308,19 @@ def news():
 @app.route("/brief", methods=["GET"])
 def brief():
     cutoff_friday = _last_friday(datetime.now(UTC).date())
+    run_refresh = request.args.get("run", "false").lower() in {"1", "true", "yes"}
     cached = _read_cached("brief", cutoff_friday)
-    if isinstance(cached, dict):
+    if isinstance(cached, dict) and not run_refresh:
         return jsonify(cached)
+
+    if run_refresh:
+        script = request.args.get(
+            "script",
+            os.getenv("CONTRACTS_SCRIPT", ""),
+        )
+        refresh_result = _maybe_run_refresh_script(script)
+        if refresh_result and not refresh_result.get("ok", False):
+            return jsonify({"error": "Brief refresh script failed", "detail": refresh_result}), 500
 
     try:
         path = _require_file("roaster_brief.json", JSON_DATA_DIRS)
