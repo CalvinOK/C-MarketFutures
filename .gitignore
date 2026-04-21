@@ -9,3 +9,5 @@ api/try2/
 website/node_modules/
 website/.next/
 old/
+.vercel
+.env*.local

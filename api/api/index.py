@@ -1,96 +1,99 @@
-from __future__ import annotations
+from flask import Flask, jsonify, request, Response
 
-from flask import Flask, jsonify, request
-
-from coffee_service import (
-    build_health_payload,
-    build_market_refresh_payload,
-    build_root_payload,
-    load_brief_payload,
-    load_contracts_payload,
-    load_market_report_payload,
-    load_news_payload,
-    load_projected_spot_payload,
-    load_snapshot_payload,
-    require_internal_token_if_configured,
-)
+from api.runner import run_local_script
 
 app = Flask(__name__)
 
-
-def dual_route(rule: str, **options):
-    def decorator(view_func):
-        app.route(rule, **options)(view_func)
-        if rule == "/":
-            app.route("/api", **options)(view_func)
-        else:
-            app.route(f"/api{rule}", **options)(view_func)
-        return view_func
-
-    return decorator
-
-
-@dual_route("/")
+@app.route("/")
 def root():
-    return jsonify(build_root_payload())
+    return jsonify({
+        "message": "Flask running on Vercel (api/index.py)"
+    })
 
-
-@dual_route("/health")
-def health():
-    return jsonify(build_health_payload())
-
-
-@dual_route("/hello", methods=["GET"])
+@app.route("/api/hello", methods=["GET"])
 def hello():
     name = request.args.get("name", "world")
-    return jsonify({"message": f"Hello, {name}!"})
+    return jsonify({
+        "message": f"Hello, {name}!"
+    })
 
-
-@dual_route("/echo", methods=["POST"])
+@app.route("/api/echo", methods=["POST"])
 def echo():
     data = request.get_json(silent=True) or {}
-    return jsonify({"you_sent": data})
+    return jsonify({
+        "you_sent": data
+    })
 
 
-@dual_route("/contracts", methods=["GET"])
-def contracts():
-    return jsonify(load_contracts_payload(refresh=request.args.get("refresh") == "1"))
-
-
-@dual_route("/snapshot", methods=["GET"])
-def snapshot():
-    return jsonify(load_snapshot_payload(refresh=request.args.get("refresh") == "1"))
-
-
-@dual_route("/news", methods=["GET"])
-def news():
-    limit = request.args.get("limit", "3")
-    try:
-        parsed_limit = max(1, min(20, int(limit)))
-    except ValueError:
-        parsed_limit = 3
-    return jsonify(load_news_payload(limit=parsed_limit, refresh=request.args.get("refresh") == "1"))
-
-
-@dual_route("/brief", methods=["GET"])
-def brief():
-    return jsonify(load_brief_payload(refresh=request.args.get("refresh") == "1"))
-
-
-@dual_route("/market-report", methods=["GET"])
-def market_report():
-    return jsonify(load_market_report_payload(refresh=request.args.get("refresh") == "1"))
-
-
-@dual_route("/projected-spot", methods=["GET"])
+@app.route("/api/projected-spot", methods=["GET"])
 def projected_spot():
-    return jsonify(load_projected_spot_payload(refresh=request.args.get("refresh") == "1"))
+    should_run_script = request.args.get("run", "false").lower() in {"1", "true", "yes"}
+    run_result = None
+
+    if should_run_script:
+        run_result = run_local_script("scripts/projection_stub.py")
+        if not run_result["ok"]:
+            return jsonify(
+                {
+                    "error": "Projection stub script failed",
+                    "detail": run_result,
+                }
+            ), 500
+
+    history_csv = "date,price\n2026-04-01,0.0\n"
+    forecast_csv = (
+        "as_of_date,step_week,date,predicted_weekly_log_return,projected_price,"
+        "anchor_weekly_log_return,raw_1w_log_return\n"
+        "2026-04-01,1,2026-04-08,0.0,0.0,0.0,0.0\n"
+    )
+
+    if request.args.get("format") == "csv":
+        return Response(forecast_csv, mimetype="text/csv")
+
+    return jsonify(
+        {
+            "format": "projected-spot-csv.v1",
+            "files": {
+                "history": "inline",
+                "forecast": "inline",
+            },
+            "asOfDate": "2026-04-01",
+            "historyCsv": history_csv,
+            "forecastCsv": forecast_csv,
+            "scriptRun": run_result,
+        }
+    )
 
 
-@dual_route("/refresh", methods=["POST", "GET"])
-def refresh():
-    auth_error = require_internal_token_if_configured(request)
-    if auth_error is not None:
-        return auth_error
+@app.route("/api/contracts", methods=["GET"])
+def contracts():
+    should_run_script = request.args.get("run", "false").lower() in {"1", "true", "yes"}
+    run_result = None
 
-    return jsonify(build_market_refresh_payload())
+    if should_run_script:
+        run_result = run_local_script("scripts/contracts_stub.py")
+        if not run_result["ok"]:
+            return jsonify(
+                {
+                    "error": "Contracts stub script failed",
+                    "detail": run_result,
+                }
+            ), 500
+
+    rows = [
+        {
+            "symbol": "KCK26",
+            "expiry_date": "2026-05-19",
+            "last_price": 0.0,
+            "price_change": 0.0,
+            "price_change_pct": 0.0,
+            "volume": 0,
+            "open_interest": 0,
+            "captured_at": "2026-04-01T00:00:00Z",
+        }
+    ]
+
+    response = jsonify(rows)
+    if run_result is not None:
+        response.headers["X-Stub-Script-Status"] = "ok"
+    return response
