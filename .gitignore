@@ -20,6 +20,12 @@ __pycache__/
 # Frontend build artifacts
 website/node_modules/
 website/.next/
+website/.vercel/
+website/dump.rdb
+
+# Nested Python and deployment state
+api/.venv/
+api/.vercel/
 
 # Deployment metadata
 .vercel/
