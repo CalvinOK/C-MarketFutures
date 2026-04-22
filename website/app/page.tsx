@@ -894,6 +894,43 @@ export default function CoffeeFuturesSite() {
     URL.revokeObjectURL(url);
   };
 
+  const downloadApiJson = async (apiPath: string, filePrefix: string) => {
+    const response = await fetch(apiPath, { cache: "no-store" });
+    if (!response.ok) {
+      throw new Error(`Failed to load ${apiPath} (${response.status})`);
+    }
+
+    const payload = await response.json();
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {
+      type: "application/json;charset=utf-8;",
+    });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    const timestamp = new Date().toISOString().slice(0, 10);
+    anchor.href = url;
+    anchor.download = `${filePrefix}_${timestamp}.json`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleDownloadLiveContracts = async () => {
+    try {
+      await downloadApiJson("/api/contracts", "contracts_live");
+    } catch (error) {
+      setDataError(error instanceof Error ? error.message : "Failed to download live contracts.");
+    }
+  };
+
+  const handleDownloadLiveSnapshot = async () => {
+    try {
+      await downloadApiJson("/api/snapshot", "snapshot_live");
+    } catch (error) {
+      setDataError(error instanceof Error ? error.message : "Failed to download live snapshot.");
+    }
+  };
+
   const todayHeaderDate = new Intl.DateTimeFormat("en-US", {
     month: "short",
     day: "numeric",
@@ -1295,14 +1332,13 @@ export default function CoffeeFuturesSite() {
                     Compact contract cards
                   </p>
                 </div>
-                <a
-                  href="/api/contracts"
-                  target="_blank"
-                  rel="noopener noreferrer"
+                <button
+                  type="button"
+                  onClick={handleDownloadLiveContracts}
                   className={`rounded-full border px-3 py-1 text-xs font-medium transition hover:border-[var(--bond-blue)]/35 hover:bg-[var(--baby-blue)]/22 ${isLiveData ? "border-green-200 bg-green-50 text-green-700" : contractsUnavailable ? "border-[var(--line)] bg-white text-[var(--muted)]" : "border-[var(--line-strong)] bg-[var(--prasad-purple)]/18 text-[var(--bond-blue)]"}`}
                 >
                   {isLiveData ? "Live" : contractsUnavailable ? "N/A" : "Delayed demo"}
-                </a>
+                </button>
               </div>
 
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -1439,14 +1475,13 @@ export default function CoffeeFuturesSite() {
                     Core futures metrics at a glance
                   </p>
                 </div>
-                <a
-                  href="/api/snapshot"
-                  target="_blank"
-                  rel="noopener noreferrer"
+                <button
+                  type="button"
+                  onClick={handleDownloadLiveSnapshot}
                   className="rounded-full border border-[var(--line-strong)] bg-white px-3 py-1 text-xs font-medium text-[var(--bond-blue)] transition hover:border-[var(--bond-blue)]/35 hover:bg-[var(--baby-blue)]/22"
                 >
                   Live summary
-                </a>
+                </button>
               </div>
 
               <div className="mt-4 grid grid-cols-2 gap-3">

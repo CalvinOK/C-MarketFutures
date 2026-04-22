@@ -11,9 +11,9 @@ export const metadata: Metadata = {
   description:
     "Track ICE Arabica coffee futures contracts, forward curve, and market context.",
   icons: {
-    icon: "/bond-logo-navy.png",
-    shortcut: "/bond-logo-navy.png",
-    apple: "/bond-logo-navy.png",
+    icon: "/bond-small-icon.png",
+    shortcut: "/bond-small-icon.png",
+    apple: "/bond-small-icon.png",
   },
   openGraph: {
     title: "C-Market Futures | ICE Arabica Coffee Dashboard",
