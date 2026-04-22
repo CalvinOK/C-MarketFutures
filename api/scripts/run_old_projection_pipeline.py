@@ -18,13 +18,6 @@ API_PUBLIC_DATA = API_ROOT / "public" / "data"
 
 
 def _python_executable() -> str:
-    venv_python = API_ROOT / ".venv" / "bin" / "python"
-    if venv_python.exists():
-        return str(venv_python)
-
-    venv_python = PROJECT_ROOT / ".venv" / "bin" / "python"
-    if venv_python.exists():
-        return str(venv_python)
     return sys.executable
 
 

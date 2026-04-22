@@ -181,7 +181,8 @@ def projected_spot():
         history_csv = _read_text_file(history_path)
         forecast_csv = _read_text_file(forecast_path)
     except FileNotFoundError as exc:
-        return jsonify({"error": f"Missing required CSV: {exc}"}), 404
+        detail = {"pipelineRun": refresh_result} if refresh_result else {}
+        return jsonify({"error": f"Missing required CSV: {exc}", **detail}), 404
     except json.JSONDecodeError:
         return jsonify({"error": "Invalid CSV file encoding"}), 500
 
