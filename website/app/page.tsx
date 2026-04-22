@@ -564,7 +564,7 @@ export default function CoffeeFuturesSite() {
           Number(c.price_change).toFixed(2),
         pct:
           (Number(c.price_change_pct) >= 0 ? "+" : "") +
-          (Number(c.price_change_pct) * 100).toFixed(2) +
+          Number(c.price_change_pct).toFixed(2) +
           "%",
         volume: formatK(Number(c.volume)),
         openInterest: formatK(Number(c.open_interest)),

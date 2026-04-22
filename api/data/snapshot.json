@@ -1,8 +1,10 @@
 {
-  "frontPrice": 321.35,
-  "curveShape": "Contango",
-  "totalVolume": 0,
-  "totalOpenInterest": 0,
+  "frontPrice": 302.4,
+  "curveShape": "Backwardation",
   "frontSymbol": "KCK26",
-  "asOf": "2026-04-13T04:52:26.189771+00:00"
+  "totalVolume": 31298,
+  "totalOpenInterest": 162870,
+  "asOf": "2026-04-22T18:26:15.836448+00:00",
+  "priceSource": "barchart",
+  "oiSource": "barchart"
 }
