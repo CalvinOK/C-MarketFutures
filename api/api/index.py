@@ -172,7 +172,8 @@ def projected_spot():
     if needs_refresh and script:
         refresh_result = _maybe_run_refresh_script(script)
         if refresh_result and not refresh_result.get("ok", False):
-            return jsonify({"error": "Projection refresh script failed", "detail": refresh_result}), 500
+            if run_refresh:
+                return jsonify({"error": "Projection refresh script failed", "detail": refresh_result}), 500
 
     try:
         history_path = _require_file("coffee_xgb_proj4_history.csv", CSV_DATA_DIRS)
