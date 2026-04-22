@@ -201,9 +201,6 @@ def projected_spot():
 def contracts():
     cutoff_friday = _last_friday(datetime.now(UTC).date())
     run_refresh = request.args.get("run", "false").lower() in {"1", "true", "yes"}
-    cached = _read_cached("contracts", cutoff_friday)
-    if isinstance(cached, list) and not run_refresh:
-        return jsonify(cached)
 
     script = request.args.get(
         "script",
@@ -212,9 +209,14 @@ def contracts():
     refresh_result = None
 
     contracts_path = _first_existing_path("contracts.json", JSON_DATA_DIRS)
-    if contracts_path and _file_is_stale_since_last_friday(contracts_path, cutoff_friday) and script:
-        refresh_result = _maybe_run_refresh_script(script)
-    elif run_refresh:
+    is_stale = bool(contracts_path and _file_is_stale_since_last_friday(contracts_path, cutoff_friday))
+    needs_refresh = run_refresh or contracts_path is None or is_stale
+
+    cached = _read_cached("contracts", cutoff_friday)
+    if isinstance(cached, list) and not needs_refresh:
+        return jsonify(cached)
+
+    if needs_refresh and script:
         refresh_result = _maybe_run_refresh_script(script)
 
     if refresh_result and not refresh_result.get("ok", False):
@@ -243,15 +245,19 @@ def contracts():
 def snapshot():
     cutoff_friday = _last_friday(datetime.now(UTC).date())
     run_refresh = request.args.get("run", "false").lower() in {"1", "true", "yes"}
+    script = request.args.get(
+        "script",
+        _get_contracts_script_path(),
+    )
+    snapshot_path = _first_existing_path("snapshot.json", JSON_DATA_DIRS)
+    is_stale = bool(snapshot_path and _file_is_stale_since_last_friday(snapshot_path, cutoff_friday))
+    needs_refresh = run_refresh or snapshot_path is None or is_stale
+
     cached = _read_cached("snapshot", cutoff_friday)
-    if isinstance(cached, dict) and not run_refresh:
+    if isinstance(cached, dict) and not needs_refresh:
         return jsonify(cached)
 
-    if run_refresh:
-        script = request.args.get(
-            "script",
-            _get_contracts_script_path(),
-        )
+    if needs_refresh and script:
         refresh_result = _maybe_run_refresh_script(script)
         if refresh_result and not refresh_result.get("ok", False):
             return jsonify({"error": "Snapshot refresh script failed", "detail": refresh_result}), 500

@@ -5,11 +5,12 @@ Target page:
 https://www.barchart.com/futures/quotes/KC*0/futures-prices
 
 Flow:
-1) Try requests + BeautifulSoup parser.
-2) If rows are missing (client-rendered page), fall back to Playwright.
-3) Validate/transform rows into contracts payload.
-4) Derive snapshot payload.
-5) Atomically write contracts.json and snapshot.json.
+1) Bootstrap a requests session from the page HTML so Barchart sets its cookies.
+2) Fetch the underlying quote JSON endpoint directly.
+3) Fall back to HTML / Playwright parsing only if the JSON path fails.
+4) Validate/transform rows into contracts payload.
+5) Derive snapshot payload.
+6) Atomically write contracts.json and snapshot.json.
 
 This script keeps last-known-good files by only replacing files after a successful scrape.
 """
@@ -29,6 +30,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote
 
 import requests
 from bs4 import BeautifulSoup
@@ -39,6 +41,7 @@ except Exception:  # pragma: no cover - import only required when fallback is us
     async_playwright = None
 
 TARGET_URL = "https://www.barchart.com/futures/quotes/KC*0/futures-prices"
+QUOTE_JSON_URL = "https://www.barchart.com/proxies/core-api/v1/quotes/get"
 DEFAULT_TIMEOUT_SECONDS = 20
 DEFAULT_RETRIES = 3
 DEFAULT_BACKOFF_SECONDS = 1.25
@@ -196,6 +199,84 @@ def value_from_header(cells: list[str], headers: list[str], *needles: str) -> st
     return ""
 
 
+def build_session_headers() -> dict[str, str]:
+    return {
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+
+
+def build_quote_headers(xsrf_token: str | None) -> dict[str, str]:
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "X-Requested-With": "XMLHttpRequest",
+        "Referer": TARGET_URL,
+        "Origin": "https://www.barchart.com",
+    }
+    if xsrf_token:
+        headers["X-XSRF-TOKEN"] = xsrf_token
+    return headers
+
+
+def fetch_quote_json(url: str, timeout_seconds: int, retries: int, backoff_seconds: float, logger: logging.Logger) -> dict[str, Any] | None:
+    session = requests.Session()
+    for attempt in range(1, retries + 1):
+        try:
+            page_response = session.get(url, headers=build_session_headers(), timeout=timeout_seconds)
+            page_response.raise_for_status()
+
+            xsrf_token = session.cookies.get("XSRF-TOKEN")
+            if xsrf_token:
+                xsrf_token = unquote(xsrf_token)
+
+            quote_response = session.get(
+                QUOTE_JSON_URL,
+                params={
+                    "fields": "symbol,contractSymbol,lastPrice,priceChange,openPrice,highPrice,lowPrice,previousPrice,volume,openInterest,tradeTime,symbolCode,symbolType,hasOptions",
+                    "lists": "futures.contractInRoot",
+                    "root": "KC",
+                    "meta": "field.shortName,field.type,field.description,lists.lastUpdate",
+                    "page": 1,
+                    "limit": 100,
+                    "hasOptions": "true",
+                    "raw": 1,
+                },
+                headers=build_quote_headers(xsrf_token),
+                timeout=timeout_seconds,
+            )
+            quote_response.raise_for_status()
+
+            payload = quote_response.json()
+            if isinstance(payload, dict):
+                return payload
+            return None
+        except Exception as exc:
+            log_event(
+                logger,
+                "quote_json_failed",
+                attempt=attempt,
+                retries=retries,
+                error=str(exc),
+            )
+            if attempt == retries:
+                return None
+            sleep_for = backoff_seconds * (2 ** (attempt - 1)) + random.uniform(0, 0.35)
+            time.sleep(sleep_for)
+
+    return None
+
+
 def extract_rows_from_table_html(html: str) -> list[RawRow]:
     soup = BeautifulSoup(html, "html.parser")
     raw_rows: list[RawRow] = []
@@ -244,6 +325,35 @@ def extract_rows_from_table_html(html: str) -> list[RawRow]:
     return dedupe_rows(raw_rows)
 
 
+def extract_rows_from_quote_json(payload: dict[str, Any]) -> list[RawRow]:
+    raw_rows: list[RawRow] = []
+    for item in payload.get("data", []):
+        if not isinstance(item, dict):
+            continue
+
+        raw = item.get("raw") if isinstance(item.get("raw"), dict) else item
+        symbol = normalize_symbol(str(raw.get("symbol") or item.get("symbol") or ""))
+        if not symbol:
+            continue
+
+        trade_time = raw.get("tradeTime") or item.get("tradeTime")
+        price_as_of = str(trade_time) if isinstance(trade_time, str) else None
+
+        raw_rows.append(
+            RawRow(
+                symbol=symbol,
+                last_price=str(raw.get("lastPrice") or item.get("lastPrice") or ""),
+                price_change=str(raw.get("priceChange") or item.get("priceChange") or ""),
+                price_change_pct=str(raw.get("priceChangePct") or item.get("priceChangePct") or ""),
+                volume=str(raw.get("volume") or item.get("volume") or ""),
+                open_interest=str(raw.get("openInterest") or item.get("openInterest") or ""),
+                price_as_of=price_as_of,
+            )
+        )
+
+    return dedupe_rows(raw_rows)
+
+
 def dedupe_rows(rows: list[RawRow]) -> list[RawRow]:
     out: list[RawRow] = []
     seen: set[str] = set()
@@ -273,7 +383,7 @@ async def extract_rows_with_playwright(url: str, timeout_ms: int) -> list[RawRow
         await page.wait_for_timeout(1500)
 
         data = await page.evaluate(
-            """
+            r"""
             () => {
               const symbolRegex = /\bKC[FGHJKMNQUVXZ]\d{2}\b/;
               const tables = Array.from(document.querySelectorAll('table'));
@@ -466,18 +576,18 @@ def validate_contracts(contracts: list[dict[str, Any]]) -> None:
 
 def derive_curve_shape(contracts: list[dict[str, Any]]) -> str:
     if len(contracts) < 2:
-        return "flat"
+        return "Flat"
     front = contracts[0]["last_price"]
     deferred = [c["last_price"] for c in contracts[1:] if c["last_price"] is not None]
     if not deferred:
-        return "flat"
+        return "Flat"
 
     deferred_avg = sum(deferred) / len(deferred)
     if deferred_avg > front:
-        return "contango"
+        return "Contango"
     if deferred_avg < front:
-        return "backwardation"
-    return "flat"
+        return "Backwardation"
+    return "Flat"
 
 
 def derive_snapshot(contracts: list[dict[str, Any]]) -> dict[str, Any]:
@@ -510,7 +620,7 @@ def scrape_contracts(
     backoff_seconds: float,
     logger: logging.Logger,
 ) -> tuple[list[dict[str, Any]], str]:
-    html = fetch_html_requests(
+    quote_payload = fetch_quote_json(
         url=url,
         timeout_seconds=timeout_seconds,
         retries=retries,
@@ -518,15 +628,29 @@ def scrape_contracts(
         logger=logger,
     )
 
-    rows = extract_rows_from_table_html(html)
-    if rows:
-        log_event(logger, "requests_parser_success", rows=len(rows))
-    else:
-        log_event(logger, "requests_parser_empty", message="No table rows found; trying Playwright")
+    rows: list[RawRow] = []
+    if quote_payload:
+        rows = extract_rows_from_quote_json(quote_payload)
+        log_event(logger, "quote_json_parser_result", rows=len(rows))
 
     if not rows:
-        rows = asyncio.run(extract_rows_with_playwright(url, timeout_ms=timeout_seconds * 1000))
-        log_event(logger, "playwright_parser_result", rows=len(rows))
+        html = fetch_html_requests(
+            url=url,
+            timeout_seconds=timeout_seconds,
+            retries=retries,
+            backoff_seconds=backoff_seconds,
+            logger=logger,
+        )
+
+        rows = extract_rows_from_table_html(html)
+        if rows:
+            log_event(logger, "requests_parser_success", rows=len(rows))
+        else:
+            log_event(logger, "requests_parser_empty", message="No table rows found; trying Playwright")
+
+        if not rows:
+            rows = asyncio.run(extract_rows_with_playwright(url, timeout_ms=timeout_seconds * 1000))
+            log_event(logger, "playwright_parser_result", rows=len(rows))
 
     captured_at = datetime.now(UTC).isoformat()
     contracts = transform_rows_to_contracts(rows, captured_at=captured_at, logger=logger)

@@ -8,6 +8,7 @@ from scraper import (
     derive_curve_shape,
     derive_snapshot,
     extract_rows_from_table_html,
+    extract_rows_from_quote_json,
     month_year_from_symbol,
     parse_compact_number,
     parse_float,
@@ -82,6 +83,53 @@ def test_extract_rows_from_table_html():
     assert rows[0].symbol == "KCK26"
     assert rows[0].volume == "73.6K"
 
+def test_extract_rows_from_quote_json():
+    payload = {
+        "count": 2,
+        "total": 2,
+        "data": [
+            {
+                "symbol": "KCY00",
+                "contractSymbol": "KCY00 (Cash)",
+                "lastPrice": "331.93s",
+                "priceChange": "+4.00",
+                "volume": "N/A",
+                "openInterest": "N/A",
+                "tradeTime": "04/21/26",
+                "raw": {
+                    "symbol": "KCY00",
+                    "lastPrice": 331.93,
+                    "priceChange": 4,
+                    "volume": None,
+                    "openInterest": None,
+                    "tradeTime": 1776821828,
+                },
+            },
+            {
+                "symbol": "KCK26",
+                "contractSymbol": "KCK26 (May '26)",
+                "lastPrice": "289.00s",
+                "priceChange": "unch",
+                "volume": "3,726",
+                "openInterest": "4,194",
+                "tradeTime": "04/22/26",
+                "raw": {
+                    "symbol": "KCK26",
+                    "lastPrice": 289,
+                    "priceChange": 0,
+                    "volume": 3726,
+                    "openInterest": 4194,
+                    "tradeTime": 1776895680,
+                },
+            },
+        ],
+    }
+
+    rows = extract_rows_from_quote_json(payload)
+    assert len(rows) == 1
+    assert rows[0].symbol == "KCK26"
+    assert rows[0].last_price == "289"
+
 
 def test_transform_and_snapshot():
     rows = [
@@ -110,7 +158,7 @@ def test_transform_and_snapshot():
     assert contracts[0]["open_interest"] == 369400
 
     curve = derive_curve_shape(contracts)
-    assert curve == "contango"
+    assert curve == "Contango"
 
     snapshot = derive_snapshot(contracts)
     assert snapshot["frontSymbol"] == "KCK26"
