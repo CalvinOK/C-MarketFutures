@@ -145,7 +145,19 @@ async function fetchJsonFromApi<T>(apiPath: string): Promise<T> {
     return apiResponse.json() as Promise<T>;
   }
 
-  throw new Error(`Failed to load ${apiPath} (${apiResponse.status})`);
+  let detail = "";
+  try {
+    const bodyText = await apiResponse.text();
+    detail = bodyText.slice(0, 240).trim();
+  } catch {
+    detail = "";
+  }
+
+  throw new Error(
+    detail
+      ? `Failed to load ${apiPath} (${apiResponse.status}): ${detail}`
+      : `Failed to load ${apiPath} (${apiResponse.status})`,
+  );
 }
 
 function extractAsOfDateFromCsv(csvText: string): string | null {
