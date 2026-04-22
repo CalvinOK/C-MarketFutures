@@ -33,6 +33,7 @@ CSV_DATA_DIRS = [
 
 MARKET_CACHE: dict[str, dict] = {}
 DEFAULT_CONTRACTS_SCRIPT = "barchart_scraper/scraper.py"
+DEFAULT_PROJECTION_SCRIPT = "scripts/run_old_projection_pipeline.py"
 
 
 def _last_friday(d: date) -> date:
@@ -154,7 +155,7 @@ def projected_spot():
     run_refresh = request.args.get("run", "false").lower() in {"1", "true", "yes"}
     script = request.args.get(
         "script",
-        os.getenv("PROJECTION_SCRIPT", ""),
+        os.getenv("PROJECTION_SCRIPT", DEFAULT_PROJECTION_SCRIPT),
     )
 
     history_path = _first_existing_path("coffee_xgb_proj4_history.csv", CSV_DATA_DIRS)
@@ -166,7 +167,9 @@ def projected_spot():
     if forecast_path and _file_is_stale_since_last_friday(forecast_path, cutoff_friday):
         stale = True
 
-    if run_refresh or (stale and script):
+    needs_refresh = run_refresh or history_path is None or forecast_path is None or stale
+
+    if needs_refresh and script:
         refresh_result = _maybe_run_refresh_script(script)
         if refresh_result and not refresh_result.get("ok", False):
             return jsonify({"error": "Projection refresh script failed", "detail": refresh_result}), 500
