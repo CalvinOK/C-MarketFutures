@@ -139,18 +139,13 @@ function formatNewsDate(timestamp: string): string | null {
   }).format(date);
 }
 
-async function fetchJsonWithFallback<T>(apiPath: string, fallbackPath: string): Promise<T> {
+async function fetchJsonFromApi<T>(apiPath: string): Promise<T> {
   const apiResponse = await fetch(apiPath, { cache: "no-store" });
   if (apiResponse.ok) {
     return apiResponse.json() as Promise<T>;
   }
 
-  const fallbackResponse = await fetch(fallbackPath, { cache: "no-store" });
-  if (!fallbackResponse.ok) {
-    throw new Error(`Failed to load ${apiPath} (${apiResponse.status})`);
-  }
-
-  return fallbackResponse.json() as Promise<T>;
+  throw new Error(`Failed to load ${apiPath} (${apiResponse.status})`);
 }
 
 function extractAsOfDateFromCsv(csvText: string): string | null {
@@ -494,10 +489,10 @@ export default function CoffeeFuturesSite() {
       firstLoad = false;
 
       const [contractsRes, newsRes, snapshotRes, briefRes] = await Promise.allSettled([
-        fetchJsonWithFallback<ContractApiRow[]>(`/api/contracts${refreshQuery}`, "/data/contracts.json"),
-        fetchJsonWithFallback<NewsApiItem[]>(`/api/news${refreshQuery}`, "/data/news.json"),
-        fetchJsonWithFallback<SnapshotData>(`/api/snapshot${refreshQuery}`, "/data/snapshot.json"),
-        fetchJsonWithFallback<SucafinaBriefApiItem>(`/api/brief${refreshQuery}`, "/data/roaster_brief.json"),
+        fetchJsonFromApi<ContractApiRow[]>(`/api/contracts${refreshQuery}`),
+        fetchJsonFromApi<NewsApiItem[]>("/api/news"),
+        fetchJsonFromApi<SnapshotData>("/api/snapshot"),
+        fetchJsonFromApi<SucafinaBriefApiItem>("/api/brief"),
       ]);
 
       if (cancelled) return;
@@ -899,6 +894,13 @@ export default function CoffeeFuturesSite() {
     URL.revokeObjectURL(url);
   };
 
+  const todayHeaderDate = new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(new Date());
+
   return (
     <div className="min-h-screen bg-[var(--page-bg)] text-[var(--ink)]">
       <div className="mx-auto max-w-6xl px-4 py-5 sm:px-6 lg:px-8">
@@ -1217,7 +1219,7 @@ export default function CoffeeFuturesSite() {
             <div className="rounded-3xl border border-[var(--line)] bg-white p-4">
               <div className="mb-3 flex items-center justify-between">
                 <h2 className="text-base font-medium text-[var(--bond-blue)]">
-                  Today
+                  Today ({todayHeaderDate})
                 </h2>
                 <span className="text-xs text-[var(--muted)]">3 notes</span>
               </div>

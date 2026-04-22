@@ -27,6 +27,7 @@ CSV_DATA_DIRS = [
 ]
 
 MARKET_CACHE: dict[str, dict] = {}
+DEFAULT_CONTRACTS_SCRIPT = "barchart_scraper/scraper.py"
 
 
 def _last_friday(d: date) -> date:
@@ -98,6 +99,10 @@ def _require_file(file_name: str, candidate_dirs: list[Path]) -> Path:
     if path is None:
         raise FileNotFoundError(file_name)
     return path
+
+
+def _get_contracts_script_path() -> str:
+    return os.getenv("CONTRACTS_SCRIPT", DEFAULT_CONTRACTS_SCRIPT)
 
 @app.route("/")
 def root():
@@ -202,7 +207,7 @@ def contracts():
 
     script = request.args.get(
         "script",
-        os.getenv("CONTRACTS_SCRIPT", ""),
+        _get_contracts_script_path(),
     )
     refresh_result = None
 
@@ -245,7 +250,7 @@ def snapshot():
     if run_refresh:
         script = request.args.get(
             "script",
-            os.getenv("CONTRACTS_SCRIPT", ""),
+            _get_contracts_script_path(),
         )
         refresh_result = _maybe_run_refresh_script(script)
         if refresh_result and not refresh_result.get("ok", False):
@@ -278,7 +283,7 @@ def news():
     if run_refresh:
         script = request.args.get(
             "script",
-            os.getenv("CONTRACTS_SCRIPT", ""),
+            _get_contracts_script_path(),
         )
         refresh_result = _maybe_run_refresh_script(script)
         if refresh_result and not refresh_result.get("ok", False):
@@ -316,7 +321,7 @@ def brief():
     if run_refresh:
         script = request.args.get(
             "script",
-            os.getenv("CONTRACTS_SCRIPT", ""),
+            _get_contracts_script_path(),
         )
         refresh_result = _maybe_run_refresh_script(script)
         if refresh_result and not refresh_result.get("ok", False):

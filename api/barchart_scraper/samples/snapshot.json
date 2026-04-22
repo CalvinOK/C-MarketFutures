@@ -1,0 +1,10 @@
+{
+  "frontPrice": 193.4,
+  "curveShape": "contango",
+  "frontSymbol": "KCK26",
+  "totalVolume": 119700,
+  "totalOpenInterest": 781300,
+  "asOf": "2026-04-22T14:30:00+00:00",
+  "priceSource": "barchart",
+  "oiSource": "barchart"
+}
