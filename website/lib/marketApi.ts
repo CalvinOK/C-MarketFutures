@@ -65,7 +65,7 @@ export async function proxyMarketApiGet(
     const text = await upstream.text()
     const contentType = upstream.headers.get('content-type') || 'application/json; charset=utf-8'
 
-    if (upstream.status === 404 && fallback) {
+    if (fallback && (upstream.status === 404 || upstream.status >= 500)) {
       const fallbackResponse = await fallback(request)
       if (fallbackResponse) {
         return fallbackResponse
