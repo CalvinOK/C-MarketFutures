@@ -45,7 +45,11 @@ QUOTE_JSON_URL = "https://www.barchart.com/proxies/core-api/v1/quotes/get"
 DEFAULT_TIMEOUT_SECONDS = 20
 DEFAULT_RETRIES = 3
 DEFAULT_BACKOFF_SECONDS = 1.25
-DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parents[2] / "website" / "public" / "data"
+DEFAULT_OUTPUT_DIR = (
+    Path(os.getenv("RUNTIME_DATA_DIR"))
+    if os.getenv("RUNTIME_DATA_DIR")
+    else (Path(__file__).resolve().parents[2] / "website" / "public" / "data")
+)
 
 MONTH_CODE_TO_MONTH = {
     "F": 1,

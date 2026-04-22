@@ -12,18 +12,23 @@ app = Flask(__name__)
 API_DIR = Path(__file__).resolve().parent
 API_ROOT = API_DIR.parent
 PROJECT_ROOT = API_ROOT.parent
+RUNTIME_DATA_DIR = Path(os.getenv("RUNTIME_DATA_DIR", "/tmp/coffee-market-data"))
 
 JSON_DATA_DIRS = [
+    RUNTIME_DATA_DIR,
     API_ROOT / "public" / "data",
+    API_ROOT / "data",
     PROJECT_ROOT / "website" / "public" / "data",
-    PROJECT_ROOT / "old" / "api" / "data",
+    PROJECT_ROOT / "old" / "api 2" / "data",
 ]
 
 CSV_DATA_DIRS = [
+    RUNTIME_DATA_DIR,
     API_ROOT / "public" / "data",
+    API_ROOT / "outputs",
     PROJECT_ROOT / "website" / "public" / "data",
     PROJECT_ROOT / "outputs",
-    PROJECT_ROOT / "old" / "api" / "outputs",
+    PROJECT_ROOT / "old" / "api 2" / "outputs",
 ]
 
 MARKET_CACHE: dict[str, dict] = {}

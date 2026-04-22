@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 import subprocess
 import sys
 
@@ -18,6 +19,15 @@ def run_local_script(script_path_input: str, timeout_seconds: int = 30) -> dict:
         }
 
     command = [sys.executable, str(script_path)]
+    env = os.environ.copy()
+    is_serverless = any(
+        env.get(name)
+        for name in ("VERCEL", "AWS_EXECUTION_ENV", "AWS_LAMBDA_FUNCTION_NAME", "LAMBDA_TASK_ROOT")
+    )
+    if str(API_ROOT).startswith("/var/task"):
+        is_serverless = True
+    if is_serverless and not env.get("RUNTIME_DATA_DIR"):
+        env["RUNTIME_DATA_DIR"] = "/tmp/coffee-market-data"
 
     try:
         completed = subprocess.run(
@@ -26,6 +36,7 @@ def run_local_script(script_path_input: str, timeout_seconds: int = 30) -> dict:
             text=True,
             timeout=timeout_seconds,
             cwd=str(API_ROOT),
+            env=env,
             check=False,
         )
     except subprocess.TimeoutExpired:
