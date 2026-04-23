@@ -444,6 +444,7 @@ export default function CoffeeFuturesSite() {
   // Live data from backend API
   const [liveContracts, setLiveContracts] = useState<ContractApiRow[] | null>(null);
   const [contractsUnavailable, setContractsUnavailable] = useState(false);
+  const [contractPage, setContractPage] = useState(0);
   const [liveNews, setLiveNews] = useState<NewsApiItem[] | null>(null);
   const [liveSucafinaBrief, setLiveSucafinaBrief] = useState<SucafinaBriefApiItem | null>(null);
   const [liveSnapshot, setLiveSnapshot] = useState<SnapshotData | null>(null);
@@ -583,6 +584,13 @@ export default function CoffeeFuturesSite() {
           openInterest: "N/A",
         }))
       : staticContracts;
+
+  const contractsPerPage = 4;
+  const totalContractPages = Math.ceil(displayContracts.length / contractsPerPage);
+  const pagedContracts = displayContracts.slice(
+    contractPage * contractsPerPage,
+    contractPage * contractsPerPage + contractsPerPage,
+  );
 
   const displayHeadlines = liveNews
     ? liveNews.map((n) => ({
@@ -1346,19 +1354,46 @@ export default function CoffeeFuturesSite() {
                     Compact contract cards
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={handleDownloadLiveContracts}
-                  className={`rounded-full border px-3 py-1 text-xs font-medium transition hover:border-[var(--bond-blue)]/35 hover:bg-[var(--baby-blue)]/22 ${isLiveData ? "border-green-200 bg-green-50 text-green-700" : contractsUnavailable ? "border-[var(--line)] bg-white text-[var(--muted)]" : "border-[var(--line-strong)] bg-[var(--prasad-purple)]/18 text-[var(--bond-blue)]"}`}
-                >
-                  {isLiveData ? "Live" : contractsUnavailable ? "N/A" : "Delayed demo"}
-                </button>
+                <div className="flex items-center gap-2">
+                  {totalContractPages > 1 && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setContractPage((p) => Math.max(0, p - 1))}
+                        disabled={contractPage === 0}
+                        className="flex h-7 w-7 items-center justify-center rounded-full border border-[var(--line-strong)] bg-white text-[var(--bond-blue)] transition hover:bg-[var(--baby-blue)]/40 disabled:cursor-not-allowed disabled:opacity-40"
+                        aria-label="Previous contracts"
+                      >
+                        ‹
+                      </button>
+                      <span className="min-w-[2.5rem] text-center text-xs text-[var(--muted)]">
+                        {contractPage + 1} / {totalContractPages}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setContractPage((p) => Math.min(totalContractPages - 1, p + 1))}
+                        disabled={contractPage === totalContractPages - 1}
+                        className="flex h-7 w-7 items-center justify-center rounded-full border border-[var(--line-strong)] bg-white text-[var(--bond-blue)] transition hover:bg-[var(--baby-blue)]/40 disabled:cursor-not-allowed disabled:opacity-40"
+                        aria-label="Next contracts"
+                      >
+                        ›
+                      </button>
+                    </>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleDownloadLiveContracts}
+                    className={`rounded-full border px-3 py-1 text-xs font-medium transition hover:border-[var(--bond-blue)]/35 hover:bg-[var(--baby-blue)]/22 ${isLiveData ? "border-green-200 bg-green-50 text-green-700" : contractsUnavailable ? "border-[var(--line)] bg-white text-[var(--muted)]" : "border-[var(--line-strong)] bg-[var(--prasad-purple)]/18 text-[var(--bond-blue)]"}`}
+                  >
+                    {isLiveData ? "Live" : contractsUnavailable ? "N/A" : "Delayed demo"}
+                  </button>
+                </div>
               </div>
 
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                {displayContracts.map((contract, index) => (
+                {pagedContracts.map((contract, index) => (
                   <article
-                    key={contractsUnavailable ? `na-${index}` : contract.symbol}
+                    key={contractsUnavailable ? `na-${contractPage * contractsPerPage + index}` : contract.symbol}
                     className={`flex h-full flex-col rounded-2xl border p-3.5 ${
                       index === 0
                         ? "border-[var(--bond-blue)]/16 bg-[var(--bond-blue)] text-white shadow-[0_14px_30px_rgba(32,44,102,0.18)]"
