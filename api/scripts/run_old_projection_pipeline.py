@@ -1,12 +1,11 @@
 from __future__ import annotations
 
+import csv
 import os
 import shutil
 import subprocess
 import sys
 from pathlib import Path
-
-import pandas as pd
 
 
 SCRIPT_PATH = Path(__file__).resolve()
@@ -55,14 +54,17 @@ def _build_history_csv() -> Path:
     if not merged_path.exists():
         raise FileNotFoundError(f"Missing merged dataset: {merged_path}")
 
-    df = pd.read_csv(merged_path)
-    required = {"Date", "coffee_c"}
-    if not required.issubset(df.columns):
-        raise ValueError("Merged dataset missing required columns: Date, coffee_c")
-
-    history = df[["Date", "coffee_c"]].copy().dropna(subset=["Date", "coffee_c"])
     out_path = API_OUTPUTS / "coffee_xgb_proj4_history.csv"
-    history.to_csv(out_path, index=False)
+    with merged_path.open(newline="", encoding="utf-8") as infile, \
+         out_path.open("w", newline="", encoding="utf-8") as outfile:
+        reader = csv.DictReader(infile)
+        if reader.fieldnames is None or not {"Date", "coffee_c"}.issubset(reader.fieldnames):
+            raise ValueError("Merged dataset missing required columns: Date, coffee_c")
+        writer = csv.DictWriter(outfile, fieldnames=["Date", "coffee_c"])
+        writer.writeheader()
+        for row in reader:
+            if row.get("Date", "").strip() and row.get("coffee_c", "").strip():
+                writer.writerow({"Date": row["Date"], "coffee_c": row["coffee_c"]})
     return out_path
 
 
