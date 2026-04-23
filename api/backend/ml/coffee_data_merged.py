@@ -28,28 +28,6 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 OUTPUT_FILE = OUTPUT_DIR / "coffee_model_dataset_merged.csv"
 
 COFFEE_FILE = LOGDATA_DIR / "CoffeeCData_log_returns.csv"
-SOY_FILE = LOGDATA_DIR / "US Soybeans Futures Historical Data_log_returns.csv"
-SUGAR_FILE = LOGDATA_DIR / "US Sugar #11 Futures Historical Data_log_returns.csv"
-FX_FILE = LOGDATA_DIR / "USD_BRLT Historical Data_log_returns.csv"
-
-CLIMATE_CANDIDATES = [
-    LOGDATA_DIR / "coffee_climate_sao_paulo.csv",
-    DATA_DIR / "coffee_climate_sao_paulo.csv",
-]
-ENSO_CANDIDATES = [
-    LOGDATA_DIR / "enso.csv",
-    DATA_DIR / "enso.csv",
-    DATA_DIR / "nino34.long.anom.csv",
-    LOGDATA_DIR / "nino34.long.anom.csv",
-]
-DROUGHT_CANDIDATES = [LOGDATA_DIR / "brazil_drought.csv", DATA_DIR / "brazil_drought.csv"]
-FROST_CANDIDATES = [LOGDATA_DIR / "brazil_frost.csv", DATA_DIR / "brazil_frost.csv"]
-INVENTORY_CANDIDATES = [
-    DATA_DIR / "standardized_inventory.csv",
-    LOGDATA_DIR / "standardized_inventory.csv",
-    DATA_DIR / "inventory.csv",
-    LOGDATA_DIR / "inventory.csv",
-]
 
 API_WEEKLY_PANEL_CANDIDATES = [
     DATA_DIR / "kc_model_panel_weekly_asof.csv",
@@ -123,10 +101,6 @@ def clean_name(name: str) -> str:
         .replace("-", "_")
     )
 
-
-# ---------------------------------------------------------------------------
-# Local daily loaders
-# ---------------------------------------------------------------------------
 
 def load_market_file(path: Path, price_name: str, return_name: str) -> pd.DataFrame:
     if not path.exists():
@@ -368,60 +342,8 @@ def load_api_weekly_panel() -> pd.DataFrame | None:
     return df
 
 
-# ---------------------------------------------------------------------------
-# Merge logic
-# ---------------------------------------------------------------------------
-
 def merge_daily_base() -> pd.DataFrame:
-    coffee = load_market_file(COFFEE_FILE, "coffee_c", "coffee_c_log_return")
-    soy = load_market_file(SOY_FILE, "soybeans", "soybeans_log_return") if SOY_FILE.exists() else None
-    sugar = load_market_file(SUGAR_FILE, "sugar", "sugar_log_return") if SUGAR_FILE.exists() else None
-    fx = load_market_file(FX_FILE, "usd_brl", "usd_brl_log_return") if FX_FILE.exists() else None
-
-    df = coffee.copy()
-    for other in [soy, sugar, fx]:
-        if other is not None:
-            df = df.merge(other, on="Date", how="left")
-
-    # Forward-fill exogenous holidays onto coffee trading dates.
-    exog_cols = [c for c in df.columns if c not in {"Date", "coffee_c", "coffee_c_log_return"}]
-    if exog_cols:
-        df[exog_cols] = df[exog_cols].ffill(limit=5)
-
-    climate = load_climate_file()
-    if climate is not None:
-        df = df.merge(climate, on="Date", how="left")
-        fill_cols = [c for c in ["tmax", "tmin", "tavg", "trange", "rainfall"] if c in df.columns]
-        if fill_cols:
-            df[fill_cols] = df[fill_cols].ffill(limit=5)
-
-    enso = load_enso_file()
-    if enso is not None:
-        full_daily = pd.date_range(enso["Date"].min(), enso["Date"].max(), freq="D")
-        enso_daily = enso.set_index("Date").reindex(full_daily).ffill(limit=31).rename_axis("Date").reset_index()
-        df = df.merge(enso_daily, on="Date", how="left")
-
-    drought = load_binary_event_file(DROUGHT_CANDIDATES, "drought_index", "drought_flag")
-    if drought is not None:
-        df = df.merge(drought, on="Date", how="left")
-        df[["drought_index", "drought_flag"]] = df[["drought_index", "drought_flag"]].ffill(limit=14)
-
-    frost = load_binary_event_file(FROST_CANDIDATES, "frost_severity", "frost_flag")
-    if frost is not None:
-        df = df.merge(frost, on="Date", how="left")
-        df[["frost_severity", "frost_flag"]] = df[["frost_severity", "frost_flag"]].ffill(limit=14)
-
-    inventory = load_inventory_file()
-    if inventory is not None:
-        inventory = inventory.sort_values("Date")
-        df = df.merge(inventory, on="Date", how="left")
-        inv_cols = [c for c in inventory.columns if c != "Date"]
-        df[inv_cols] = df[inv_cols].ffill(limit=10)
-        df["inventory_available_flag"] = df["inventory_available_flag"].fillna(0.0)
-    else:
-        df["inventory_available_flag"] = 0.0
-
-    return normalize_date_column(df, "Date")
+    return load_market_file(COFFEE_FILE, "coffee_c", "coffee_c_log_return")
 
 
 def merge_api_panel_asof(df_daily: pd.DataFrame, df_weekly: pd.DataFrame) -> pd.DataFrame:
@@ -450,10 +372,6 @@ def add_light_derived_columns(df: pd.DataFrame) -> pd.DataFrame:
 
     if "coffee_c" in out.columns:
         out["coffee_log_price"] = np.log(out["coffee_c"].where(out["coffee_c"] > 0))
-
-    for col in ["tmax", "tmin", "rainfall", "drought_index", "frost_severity", "enso_index"]:
-        if col in out.columns:
-            out[f"{col}_missing_flag"] = out[col].isna().astype(float)
 
     if "api_spec_net" in out.columns:
         out["api_spec_net_missing_flag"] = out["api_spec_net"].isna().astype(float)
@@ -488,8 +406,7 @@ def main() -> None:
     print(f"Date range: {df['Date'].min().date()} -> {df['Date'].max().date()}")
 
     show_cols = [
-        "coffee_c", "coffee_c_log_return", "soybeans", "sugar", "usd_brl",
-        "tmax", "rainfall", "enso_index", "inventory_certified_bags",
+        "coffee_c", "coffee_c_log_return",
         "api_price", "api_brl_per_usd", "api_spec_net", "api_curve_slope_1_6",
         "api_panel_available_flag",
     ]

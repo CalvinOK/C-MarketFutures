@@ -390,8 +390,6 @@ def build_feature_dataset(df: pd.DataFrame) -> pd.DataFrame:
     out = add_short_term_features(out)
     out = add_macro_price_features(out)
     out = add_macro_fx_exog_features(out)
-    out = add_climate_features(out)
-    out = add_inventory_features(out)
     out = add_api_features(out)
     out = add_calendar_and_interactions(out)
     out = add_targets(out)
@@ -409,7 +407,7 @@ def get_feature_columns(df: pd.DataFrame, horizon_weeks: int) -> list[str]:
         "usd_brl", "usd_brl_log_return",
         "tmax", "tmin", "tavg", "trange", "rainfall",
         "enso_index", "drought_index", "drought_flag", "frost_severity", "frost_flag",
-        "inventory_certified_bags", "inventory_transition_bags", "inventory_total_bags",
+        "inventory_available_flag", "inventory_certified_bags", "inventory_transition_bags", "inventory_total_bags",
     }
 
     features: list[str] = []
