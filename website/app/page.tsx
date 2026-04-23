@@ -510,7 +510,8 @@ export default function CoffeeFuturesSite() {
       if (cancelled) return;
 
       if (contractsRes.status === "fulfilled") {
-        const data = contractsRes.value;
+        const raw = contractsRes.value as ContractApiRow[] | { data: ContractApiRow[] };
+        const data = Array.isArray(raw) ? raw : (raw as { data: ContractApiRow[] }).data;
         if (Array.isArray(data) && data.length > 0) {
           setLiveContracts(data);
           setContractsUnavailable(false);
@@ -524,7 +525,8 @@ export default function CoffeeFuturesSite() {
       }
 
       if (newsRes.status === "fulfilled") {
-        const data = newsRes.value;
+        const raw = newsRes.value as NewsApiItem[] | { data: NewsApiItem[] };
+        const data = Array.isArray(raw) ? raw : (raw as { data: NewsApiItem[] }).data;
         if (Array.isArray(data) && data.length > 0) setLiveNews(data);
       }
 

@@ -34,11 +34,13 @@ CSV_DATA_DIRS = [
 MARKET_CACHE: dict[str, dict] = {}
 DEFAULT_CONTRACTS_SCRIPT = "barchart_scraper/scraper.py"
 DEFAULT_PROJECTION_SCRIPT = "scripts/run_old_projection_pipeline.py"
+DEFAULT_NEWS_SCRIPT = "scripts/news_scraper.py"
+DEFAULT_BRIEF_SCRIPT = "scripts/sucafina_scraper.py"
 
 _FRESHNESS_THRESHOLDS: dict[str, timedelta] = {
     "contracts":      timedelta(hours=1),
     "snapshot":       timedelta(hours=1),
-    "news":           timedelta(days=2),
+    "news":           timedelta(days=1),
     "brief":          timedelta(days=7),
     "projected-spot": timedelta(days=7),
 }
@@ -341,14 +343,13 @@ def news():
     if isinstance(cached, dict) and "data" in cached and not run_refresh and not file_too_old:
         return jsonify(cached)
 
-    if run_refresh:
-        script = request.args.get(
-            "script",
-            _get_contracts_script_path(),
-        )
+    needs_refresh = run_refresh or news_path is None or file_too_old
+    if needs_refresh:
+        script = request.args.get("script", os.getenv("NEWS_SCRIPT", DEFAULT_NEWS_SCRIPT))
         refresh_result = _maybe_run_refresh_script(script)
         if refresh_result and not refresh_result.get("ok", False):
-            return jsonify({"error": "News refresh script failed", "detail": refresh_result}), 500
+            if run_refresh:
+                return jsonify({"error": "News refresh script failed", "detail": refresh_result}), 500
 
     try:
         path = _require_file("news.json", JSON_DATA_DIRS)
@@ -382,14 +383,20 @@ def brief():
     if isinstance(cached, dict) and not run_refresh:
         return jsonify(cached)
 
-    if run_refresh:
-        script = request.args.get(
-            "script",
-            _get_contracts_script_path(),
-        )
+    brief_path = _first_existing_path("roaster_brief.json", JSON_DATA_DIRS)
+    brief_stale = bool(
+        brief_path and
+        (datetime.now(UTC) - datetime.fromtimestamp(brief_path.stat().st_mtime, tz=UTC))
+        > _FRESHNESS_THRESHOLDS["brief"]
+    )
+    needs_brief_refresh = run_refresh or brief_path is None or brief_stale
+
+    if needs_brief_refresh:
+        script = request.args.get("script", os.getenv("BRIEF_SCRIPT", DEFAULT_BRIEF_SCRIPT))
         refresh_result = _maybe_run_refresh_script(script)
         if refresh_result and not refresh_result.get("ok", False):
-            return jsonify({"error": "Brief refresh script failed", "detail": refresh_result}), 500
+            if run_refresh:
+                return jsonify({"error": "Brief refresh script failed", "detail": refresh_result}), 500
 
     try:
         path = _require_file("roaster_brief.json", JSON_DATA_DIRS)
