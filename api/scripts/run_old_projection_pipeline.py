@@ -11,7 +11,23 @@ from pathlib import Path
 SCRIPT_PATH = Path(__file__).resolve()
 API_ROOT = SCRIPT_PATH.parents[1]
 PROJECT_ROOT = SCRIPT_PATH.parents[2]
-API_OUTPUTS = API_ROOT / "outputs"
+
+# On Vercel, /var/task is read-only. RUNTIME_DATA_DIR is set to /tmp/... by
+# runner.py and is the only writable location. When not on Vercel, fall back
+# to the local outputs/ directory so local runs still work unchanged.
+_runtime = os.environ.get("RUNTIME_DATA_DIR", "").strip()
+API_OUTPUTS = Path(_runtime) if _runtime else API_ROOT / "outputs"
+API_OUTPUTS.mkdir(parents=True, exist_ok=True)
+
+# Detect serverless environment so we can skip steps that require a writable
+# source tree (logdata fetch) or that are already unnecessary (sync).
+_IS_SERVERLESS = bool(
+    os.environ.get("VERCEL")
+    or os.environ.get("AWS_LAMBDA_FUNCTION_NAME")
+    or os.environ.get("AWS_EXECUTION_ENV")
+    or str(API_ROOT).startswith("/var/task")
+)
+
 WEBSITE_PUBLIC_DATA = PROJECT_ROOT / "website" / "public" / "data"
 API_PUBLIC_DATA = API_ROOT / "public" / "data"
 
@@ -30,6 +46,11 @@ def _run_step(label: str, script_path: Path, cwd: Path, timeout_seconds: int = 1
         env["PYTHONPATH"] = f"{API_ROOT}:{existing_pythonpath}"
     else:
         env["PYTHONPATH"] = str(API_ROOT)
+
+    # Propagate RUNTIME_DATA_DIR to sub-scripts so config.py and data_fetch.py
+    # also write to the writable /tmp path.
+    if _runtime:
+        env["RUNTIME_DATA_DIR"] = _runtime
 
     proc = subprocess.run(
         cmd,
@@ -69,6 +90,13 @@ def _build_history_csv() -> Path:
 
 
 def _sync_outputs(paths: list[Path]) -> None:
+    # On Vercel, outputs are already in RUNTIME_DATA_DIR which the Flask API
+    # searches first. Writing to WEBSITE_PUBLIC_DATA / API_PUBLIC_DATA would
+    # hit read-only /var/task and fail, so skip the sync entirely.
+    if _IS_SERVERLESS:
+        print("[pipeline] Serverless environment — skipping filesystem sync.")
+        return
+
     WEBSITE_PUBLIC_DATA.mkdir(parents=True, exist_ok=True)
     API_PUBLIC_DATA.mkdir(parents=True, exist_ok=True)
 
@@ -88,7 +116,14 @@ def main() -> None:
     if not API_ROOT.exists():
         raise FileNotFoundError(f"Missing API folder: {API_ROOT}")
 
-    _run_step("logdata fetch", SCRIPT_PATH.parent / "fetch_logdata.py", API_ROOT)
+    # fetch_logdata.py writes to api/logdata/ which is read-only on Vercel.
+    # Skip it and use the logdata bundled with the deployment. To get fresh
+    # data on Vercel, run fetch_logdata.py locally and redeploy.
+    if _IS_SERVERLESS:
+        print("[pipeline] Serverless environment — skipping logdata fetch (using bundled data).")
+    else:
+        _run_step("logdata fetch", SCRIPT_PATH.parent / "fetch_logdata.py", API_ROOT)
+
     _run_step("data fetch", API_ROOT / "data_fetch.py", API_ROOT)
     _run_step(
         "data merge",
@@ -114,7 +149,8 @@ def main() -> None:
         ]
     )
 
-    print("[pipeline] Completed projection pipeline refresh from api/")
+    print(f"[pipeline] Outputs written to: {API_OUTPUTS}")
+    print("[pipeline] Completed projection pipeline refresh.")
 
 
 if __name__ == "__main__":

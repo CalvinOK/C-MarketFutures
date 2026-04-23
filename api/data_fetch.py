@@ -36,8 +36,12 @@ except ImportError:
 
 ROOT = Path(__file__).parent
 PROJECT_ROOT = ROOT.parent
-WEB_PUBLIC_DATA = PROJECT_ROOT / "website" / "public" / "data"
 DATA_DIR = ROOT / "data"
+
+# On Vercel, website/public/data is read-only (/var/task). Write JSON outputs
+# to RUNTIME_DATA_DIR (/tmp/...) so the Flask API can find them there first.
+_runtime = os.environ.get("RUNTIME_DATA_DIR", "").strip()
+WEB_PUBLIC_DATA = Path(_runtime) if _runtime else PROJECT_ROOT / "website" / "public" / "data"
 
 WEB_PUBLIC_DATA.mkdir(parents=True, exist_ok=True)
 DATA_DIR.mkdir(parents=True, exist_ok=True)

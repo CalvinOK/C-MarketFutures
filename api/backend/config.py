@@ -6,7 +6,11 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parents[1]
 DATA_DIR = BASE_DIR / 'data'
 LOGDATA_DIR = BASE_DIR / 'logdata'
-OUTPUT_DIR = BASE_DIR / 'outputs'
+
+# On Vercel (serverless), the source tree is read-only at /var/task.
+# RUNTIME_DATA_DIR points to a writable directory (/tmp/...) set by runner.py.
+_runtime = os.getenv('RUNTIME_DATA_DIR')
+OUTPUT_DIR = Path(_runtime) if _runtime else BASE_DIR / 'outputs'
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 BLOB_TOKEN = os.getenv('BLOB_READ_WRITE_TOKEN')

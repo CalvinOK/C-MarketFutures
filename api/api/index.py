@@ -119,8 +119,30 @@ def _extract_as_of_date(forecast_csv: str) -> str | None:
 
 
 def _file_is_stale_since_last_friday(path: Path, cutoff_friday: date) -> bool:
+    """File-mtime check — appropriate for JSON files written fresh each run."""
     mtime_date = datetime.fromtimestamp(path.stat().st_mtime, tz=UTC).date()
     return mtime_date < cutoff_friday
+
+
+def _forecast_is_stale(forecast_path: Path | None, cutoff_friday: date) -> bool:
+    """Check staleness using the as_of_date embedded in the CSV, not file mtime.
+
+    File mtime is unreliable: the pipeline can write a file after the last
+    Friday while the actual model data ends weeks earlier (e.g. ran April 22
+    but logdata ends April 2). The as_of_date column reflects the true last
+    training date, so we compare that against the most recent Friday.
+    """
+    if forecast_path is None:
+        return True
+    try:
+        text = forecast_path.read_text(encoding="utf-8")
+        as_of_str = _extract_as_of_date(text)
+        if not as_of_str:
+            return True
+        as_of = date.fromisoformat(as_of_str[:10])
+        return as_of < cutoff_friday
+    except Exception:
+        return True
 
 
 def _maybe_run_refresh_script(script_path: str | None):
@@ -191,12 +213,7 @@ def projected_spot():
     history_path = _first_existing_path("coffee_xgb_proj4_history.csv", CSV_DATA_DIRS)
     forecast_path = _first_existing_path("coffee_xgb_proj4_rolling_path.csv", CSV_DATA_DIRS)
 
-    stale = False
-    if history_path and _file_is_stale_since_last_friday(history_path, cutoff_friday):
-        stale = True
-    if forecast_path and _file_is_stale_since_last_friday(forecast_path, cutoff_friday):
-        stale = True
-
+    stale = _forecast_is_stale(forecast_path, cutoff_friday)
     needs_refresh = run_refresh or history_path is None or forecast_path is None or stale
 
     if needs_refresh and script:
