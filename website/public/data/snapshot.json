@@ -1,10 +1,10 @@
 {
-  "frontPrice": 302.4,
+  "frontPrice": 311.25,
   "curveShape": "Backwardation",
   "frontSymbol": "KCK26",
-  "totalVolume": 31298,
-  "totalOpenInterest": 162870,
-  "asOf": "2026-04-22T18:26:15.836448+00:00",
-  "priceSource": "barchart",
-  "oiSource": "barchart"
+  "totalVolume": 38365,
+  "totalOpenInterest": 143897,
+  "asOf": "2026-04-23T05:38:31.872488+00:00",
+  "priceSource": "yahoo_finance",
+  "oiSource": "databento_statistics"
 }

@@ -56,6 +56,28 @@ import databento as db
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 API_ROOT = SCRIPT_DIR.parent
+PROJECT_ROOT = API_ROOT.parent
+
+
+def _load_dotenv(path: Path) -> None:
+    if not path.exists():
+        return
+    with path.open(encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key = key.strip()
+            value = value.strip().strip('"').strip("'")
+            if key and key not in os.environ:
+                os.environ[key] = value
+
+
+_load_dotenv(API_ROOT / ".env")
+_load_dotenv(API_ROOT / ".env.local")
+_load_dotenv(PROJECT_ROOT / ".env")
+_load_dotenv(PROJECT_ROOT / ".env.local")
 LOGDATA_DIR = API_ROOT / "logdata"
 LOGDATA_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -395,6 +417,43 @@ def _merge_with_existing(new_df: pd.DataFrame, path: Path) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
+# Yahoo Finance fallback for Coffee C continuous
+# ---------------------------------------------------------------------------
+
+def fetch_yahoo_history(start: date, end: date) -> pd.DataFrame:
+    """
+    Fetch Coffee C continuous front-month history from Yahoo Finance (KC=F).
+    Returns a DataFrame with columns: Date, open, high, low, close, volume.
+    """
+    try:
+        import yfinance as yf
+    except ImportError as exc:
+        raise RuntimeError("yfinance is not installed. Run: pip install yfinance") from exc
+
+    end_inclusive = end + timedelta(days=1)
+    ticker = yf.Ticker("KC=F")
+    hist = ticker.history(start=start.isoformat(), end=end_inclusive.isoformat(), auto_adjust=False)
+
+    if hist.empty:
+        raise ValueError(f"Yahoo Finance returned no data for KC=F ({start} → {end})")
+
+    hist = hist.reset_index()
+    date_col = "Date" if "Date" in hist.columns else hist.columns[0]
+    hist["Date"] = pd.to_datetime(hist[date_col]).dt.date
+
+    col_map = {"Open": "open", "High": "high", "Low": "low", "Close": "close", "Volume": "volume"}
+    hist = hist.rename(columns=col_map)
+
+    for col in ("open", "high", "low", "close"):
+        hist[col] = pd.to_numeric(hist[col], errors="coerce")
+    hist["volume"] = pd.to_numeric(hist.get("volume", 0), errors="coerce").fillna(0).astype(int)
+
+    hist = hist[["Date", "open", "high", "low", "close", "volume"]].dropna(subset=["close"])
+    hist = hist.sort_values("Date").reset_index(drop=True)
+    return hist
+
+
+# ---------------------------------------------------------------------------
 # Main orchestration
 # ---------------------------------------------------------------------------
 
@@ -444,19 +503,40 @@ def run(
                 stype_in=inst.stype_in,
                 client=client,
             )
-        except Exception as exc:
-            traceback.print_exc()
-            results.append(FetchResult(
-                instrument=inst.name,
-                spot_available="No",
-                dataset=inst.dataset,
-                symbol=inst.symbol,
-                proxy_used=True,
-                rows_fetched=0,
-                output_path=str(OUTPUT_FILES[inst.output_key]),
-                error=str(exc)[:80],
-            ))
-            continue
+        except Exception as db_exc:
+            print(f"  [{inst.name}] Databento failed: {db_exc}")
+            # Yahoo Finance fallback for Coffee C continuous (KC=F)
+            if inst.output_key == "coffee":
+                print(f"  [{inst.name}] Trying Yahoo Finance fallback (KC=F)...")
+                try:
+                    raw_df = fetch_yahoo_history(start, end)
+                    print(f"  [{inst.name}] Yahoo fallback succeeded.")
+                except Exception as yf_exc:
+                    traceback.print_exc()
+                    results.append(FetchResult(
+                        instrument=inst.name,
+                        spot_available="No",
+                        dataset=inst.dataset,
+                        symbol=inst.symbol,
+                        proxy_used=True,
+                        rows_fetched=0,
+                        output_path=str(OUTPUT_FILES[inst.output_key]),
+                        error=f"Databento+Yahoo both failed: {yf_exc}"[:80],
+                    ))
+                    continue
+            else:
+                traceback.print_exc()
+                results.append(FetchResult(
+                    instrument=inst.name,
+                    spot_available="No",
+                    dataset=inst.dataset,
+                    symbol=inst.symbol,
+                    proxy_used=True,
+                    rows_fetched=0,
+                    output_path=str(OUTPUT_FILES[inst.output_key]),
+                    error=str(db_exc)[:80],
+                ))
+                continue
 
         csv_df = build_logdata_csv(raw_df)
         out_path = OUTPUT_FILES[inst.output_key]
@@ -496,6 +576,35 @@ def _yesterday() -> date:
     return (datetime.now(timezone.utc) - timedelta(days=1)).date()
 
 
+def _last_date_in_file(path: Path) -> date | None:
+    """Return the latest date in an existing logdata CSV, or None if unavailable."""
+    if not path.exists():
+        return None
+    try:
+        df = pd.read_csv(path, usecols=["Date"], dtype=str)
+        dates = pd.to_datetime(df["Date"], errors="coerce").dropna()
+        if dates.empty:
+            return None
+        return dates.max().date()
+    except Exception:
+        return None
+
+
+def _auto_start() -> date:
+    """
+    Determine the start date for an incremental fetch: one day after the latest
+    date already present in the coffee logdata file, or DEFAULT_START if the
+    file is missing/empty. Capped to at most 90 days ago so we always get a
+    reasonable overlap window even if the file is very stale.
+    """
+    coffee_path = OUTPUT_FILES["coffee"]
+    last = _last_date_in_file(coffee_path)
+    floor = _yesterday() - timedelta(days=90)
+    if last is None:
+        return max(DEFAULT_START, floor)
+    return max(last + timedelta(days=1), floor)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Fetch historical Coffee and Soybean OHLCV data from Databento.",
@@ -505,9 +614,9 @@ def main() -> None:
     parser.add_argument(
         "--start",
         type=_parse_date,
-        default=DEFAULT_START,
+        default=None,
         metavar="YYYY-MM-DD",
-        help=f"Start date (default: {DEFAULT_START})",
+        help="Start date (default: auto-detected from existing logdata, or 90 days ago)",
     )
     parser.add_argument(
         "--end",
@@ -524,16 +633,21 @@ def main() -> None:
     args = parser.parse_args()
 
     end = args.end or _yesterday()
+    start = args.start or _auto_start()
 
-    if args.start > end:
-        parser.error(f"--start ({args.start}) must be before --end ({end}).")
+    if start > end:
+        if args.start is None:
+            # Auto-detected start is after end: data is already up to date.
+            print(f"[fetch_logdata] Logdata is already up to date through {end}. Nothing to fetch.")
+            sys.exit(0)
+        parser.error(f"--start ({start}) must be before --end ({end}).")
 
     print(f"\nDatabento historical fetch")
-    print(f"  Date range : {args.start} → {end}")
+    print(f"  Date range : {start} → {end}")
     print(f"  Dry run    : {args.dry_run}")
     print(f"  Output dir : {LOGDATA_DIR}")
 
-    results = run(start=args.start, end=end, dry_run=args.dry_run)
+    results = run(start=start, end=end, dry_run=args.dry_run)
 
     _print_summary_table(results)
     _print_final_summary(results)
