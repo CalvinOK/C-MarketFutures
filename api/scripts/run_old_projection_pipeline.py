@@ -88,6 +88,7 @@ def main() -> None:
     if not API_ROOT.exists():
         raise FileNotFoundError(f"Missing API folder: {API_ROOT}")
 
+    _run_step("logdata fetch", SCRIPT_PATH.parent / "fetch_logdata.py", API_ROOT)
     _run_step("data fetch", API_ROOT / "data_fetch.py", API_ROOT)
     _run_step(
         "data merge",
