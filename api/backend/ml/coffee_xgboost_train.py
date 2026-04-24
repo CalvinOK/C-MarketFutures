@@ -651,7 +651,7 @@ def recursive_weekly_path(
     n_weeks: int = 26,
     anchor_weight_start: float = 0.35,
     shock_cap_sigma: float = 1.25,
-    noise_fraction: float = 0.70,
+    noise_fraction: float = 0.30,
     seed: int | None = RANDOM_STATE,
 ) -> pd.DataFrame:
     if 1 not in models:
