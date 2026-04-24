@@ -360,6 +360,44 @@ function buildYAxisTicks(minValue: number, maxValue: number, count = 5): number[
 }
 
 export default function CoffeeFuturesSite() {
+  const glossaryTerms = [
+    {
+      term: "OI (Open Interest)",
+      definition:
+        "The total number of outstanding futures contracts that are still open and not yet settled.",
+    },
+    {
+      term: "Volume",
+      definition:
+        "How many contracts traded during the session. Higher volume usually means better liquidity.",
+    },
+    {
+      term: "Backwardation",
+      definition:
+        "A market shape where near-dated contracts trade above deferred contracts.",
+    },
+    {
+      term: "Contango",
+      definition:
+        "A market shape where deferred contracts trade above near-dated contracts.",
+    },
+    {
+      term: "Front Month",
+      definition:
+        "The nearest contract month that is currently the most actively traded.",
+    },
+    {
+      term: "Deferred",
+      definition:
+        "Contract months that expire later than the front month.",
+    },
+    {
+      term: "Settlement",
+      definition:
+        "The official end-of-day price used by the exchange for margining and valuation.",
+    },
+  ];
+
   const staticContracts = [
     {
       month: "May 2026",
@@ -448,6 +486,7 @@ export default function CoffeeFuturesSite() {
   const [liveNews, setLiveNews] = useState<NewsApiItem[] | null>(null);
   const [liveSucafinaBrief, setLiveSucafinaBrief] = useState<SucafinaBriefApiItem | null>(null);
   const [liveSnapshot, setLiveSnapshot] = useState<SnapshotData | null>(null);
+  const [isGlossaryOpen, setIsGlossaryOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -1572,7 +1611,64 @@ export default function CoffeeFuturesSite() {
             </div>
           </div>
         </section>
+
+        <footer className="mt-5 rounded-2xl border border-[var(--line)] bg-white px-4 py-3 text-center text-sm text-[var(--muted)]">
+          If you have any further questions, please feel free to contact us bondexecutives@umich.edu.
+        </footer>
       </div>
+
+      <button
+        type="button"
+        onClick={() => setIsGlossaryOpen(true)}
+        className="fixed bottom-5 right-5 z-30 flex h-12 w-12 items-center justify-center rounded-full border border-[var(--line-strong)] bg-[var(--bond-blue)] text-2xl font-semibold text-white shadow-[0_14px_32px_rgba(32,44,102,0.28)] transition hover:scale-[1.03] hover:bg-[#1a2454] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--gameday-blue)]"
+        aria-label="Open glossary"
+      >
+        ?
+      </button>
+
+      {isGlossaryOpen && (
+        <div
+          className="fixed inset-0 z-40 flex items-end justify-center bg-[rgba(18,25,44,0.42)] p-4 sm:items-center"
+          onClick={() => setIsGlossaryOpen(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Coffee futures glossary"
+        >
+          <div
+            className="w-full max-w-2xl rounded-3xl border border-[var(--line)] bg-white p-4 shadow-[0_28px_80px_rgba(15,23,42,0.3)] sm:p-5"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mb-3 flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold text-[var(--bond-blue)]">Market Glossary</h2>
+                <p className="mt-1 text-sm text-[var(--muted)]">
+                  Quick definitions for commonly used terms on this dashboard.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsGlossaryOpen(false)}
+                className="rounded-full border border-[var(--line)] px-2.5 py-1 text-xs font-medium text-[var(--bond-blue)] transition hover:bg-[var(--baby-blue)]/28"
+                aria-label="Close glossary"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="grid gap-2 sm:grid-cols-2">
+              {glossaryTerms.map((item) => (
+                <article
+                  key={item.term}
+                  className="rounded-2xl border border-[var(--line)] bg-[var(--page-bg)] px-3 py-2.5"
+                >
+                  <h3 className="text-sm font-semibold text-[var(--bond-blue)]">{item.term}</h3>
+                  <p className="mt-1 text-sm leading-5 text-[var(--muted)]">{item.definition}</p>
+                </article>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
