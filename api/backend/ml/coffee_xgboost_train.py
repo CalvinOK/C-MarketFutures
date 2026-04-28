@@ -653,6 +653,8 @@ def recursive_weekly_path(
     shock_cap_sigma: float = 1.25,
     noise_fraction: float = 0.30,
     seed: int | None = RANDOM_STATE,
+    as_of_date_override: pd.Timestamp | None = None,
+    current_price_override: float | None = None,
 ) -> pd.DataFrame:
     if 1 not in models:
         raise ValueError("Need a 1-week model for recursive rolling forecasts.")
@@ -663,8 +665,8 @@ def recursive_weekly_path(
 
     hist = feature_df.copy().sort_values("Date").reset_index(drop=True)
     last_obs = hist.iloc[-1].copy()
-    current_price = float(last_obs["coffee_c"])
-    current_date = pd.to_datetime(last_obs["Date"])
+    current_price = current_price_override if current_price_override is not None else float(last_obs["coffee_c"])
+    current_date = as_of_date_override if as_of_date_override is not None else pd.to_datetime(last_obs["Date"])
 
     latest_row = hist.iloc[[-1]].copy()
     long_total_log_change = predict_horizon_from_latest(models[26], latest_row)
@@ -745,14 +747,18 @@ def recursive_weekly_path(
     return pd.DataFrame(path_rows)
 
 
-def fit_final_models_and_project(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+def fit_final_models_and_project(
+    df: pd.DataFrame,
+    as_of_date_override: pd.Timestamp | None = None,
+    current_price_override: float | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     models = build_all_final_models(df)
     if 1 not in models or 26 not in models:
         raise ValueError("Final forecasting now requires both 1-week and 26-week models.")
 
     latest_row = df.iloc[[-1]].copy()
-    current_price = float(latest_row["coffee_c"].iloc[0])
-    as_of_date = pd.to_datetime(latest_row["Date"].iloc[0])
+    current_price = current_price_override if current_price_override is not None else float(latest_row["coffee_c"].iloc[0])
+    as_of_date = as_of_date_override if as_of_date_override is not None else pd.to_datetime(latest_row["Date"].iloc[0])
 
     projection_rows: list[dict[str, object]] = []
     for horizon in [4, 12, 26, 52]:
@@ -769,7 +775,11 @@ def fit_final_models_and_project(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Dat
             "n_features_used": len(models[horizon]["features"]),
         })
 
-    path_df = recursive_weekly_path(df, models, n_weeks=26)
+    path_df = recursive_weekly_path(
+        df, models, n_weeks=26,
+        as_of_date_override=as_of_date,
+        current_price_override=current_price,
+    )
     path_df.insert(0, "as_of_date", as_of_date.date().isoformat())
     return pd.DataFrame(projection_rows), path_df
 
@@ -933,8 +943,34 @@ def main() -> None:
 
     feature_df = build_feature_dataset(df)
 
+    # Use today as the as_of_date so the first projection step is always
+    # one week from now, regardless of the last available trading date.
+    as_of_today = pd.Timestamp.today().normalize()
+
+    # Try to use the live front price from snapshot.json as the anchor.
+    live_front_price: float | None = None
+    snapshot_path = WEB_PUBLIC_DATA / "snapshot.json"
+    if snapshot_path.exists():
+        try:
+            import json as _json
+            with snapshot_path.open(encoding="utf-8") as _f:
+                _snap = _json.load(_f)
+            _fp = _snap.get("frontPrice")
+            if _fp is not None:
+                live_front_price = float(_fp)
+                print(f"[train] Using live front price from snapshot.json: {live_front_price}")
+        except Exception as _exc:
+            print(f"[train] Could not read snapshot.json: {_exc}")
+
+    if live_front_price is None:
+        print("[train] No live price available; using last row price as anchor.")
+
     metrics, wf_preds, feature_rows = walk_forward_validate(feature_df)
-    projections, weekly_path = fit_final_models_and_project(feature_df)
+    projections, weekly_path = fit_final_models_and_project(
+        feature_df,
+        as_of_date_override=as_of_today,
+        current_price_override=live_front_price,
+    )
 
     metrics.to_csv(METRICS_FILE, index=False)
     wf_preds.to_csv(WF_PREDS_FILE, index=False)
