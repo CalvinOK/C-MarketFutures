@@ -312,6 +312,11 @@ function parseWeeklyPathCsv(csvText: string): WeeklyPathRow[] {
   }));
 }
 
+function parseLocalDate(dateStr: string): Date {
+  const [year, month, day] = dateStr.split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
 function stddev(values: number[]): number {
   const finiteValues = values.filter((value) => Number.isFinite(value));
 
@@ -707,11 +712,11 @@ export default function CoffeeFuturesSite() {
       return [] as HistoryRow[];
     }
 
-    const latestHistoryDate = new Date(history[history.length - 1].date);
+    const latestHistoryDate = parseLocalDate(history[history.length - 1].date);
     const cutoffDate = new Date(latestHistoryDate);
     cutoffDate.setFullYear(cutoffDate.getFullYear() - 1);
 
-    const filteredHistory = history.filter((row) => new Date(row.date) >= cutoffDate);
+    const filteredHistory = history.filter((row) => parseLocalDate(row.date) >= cutoffDate);
     return filteredHistory.length > 0 ? filteredHistory : history;
   }, [history]);
 
@@ -728,8 +733,8 @@ export default function CoffeeFuturesSite() {
       return null;
     }
 
-    const historyDates = visibleHistory.map((row) => new Date(row.date));
-    const forecastDates = forecastPath.map((row) => new Date(row.date));
+    const historyDates = visibleHistory.map((row) => parseLocalDate(row.date));
+    const forecastDates = forecastPath.map((row) => parseLocalDate(row.date));
     const allDates = [...historyDates, ...forecastDates];
 
     const monthKeys = Array.from(
@@ -742,14 +747,14 @@ export default function CoffeeFuturesSite() {
     );
 
     const msPerWeek = 7 * 24 * 60 * 60 * 1000;
-    const asOfDate = new Date(forecastPath[0].asOfDate);
+    const asOfDate = parseLocalDate(forecastPath[0].asOfDate);
     const currentPrice = visibleHistory[visibleHistory.length - 1].price;
     const sigmaWeekly = stddev(
       forecastPath.map((row) => row.predictedWeeklyLogReturn),
     );
 
     const forecastBands: ForecastBandRow[] = forecastPath.map((row) => {
-      const forecastDate = new Date(row.date);
+      const forecastDate = parseLocalDate(row.date);
       const weeksElapsed = Math.max(
         (forecastDate.getTime() - asOfDate.getTime()) / msPerWeek,
         0,
@@ -799,7 +804,7 @@ export default function CoffeeFuturesSite() {
       top + (1 - (price - paddedMin) / priceRange) * innerHeight;
 
     const historyPoints: ChartPoint[] = visibleHistory.map((row) => {
-      const date = new Date(row.date);
+      const date = parseLocalDate(row.date);
 
       return {
         date,
@@ -811,7 +816,7 @@ export default function CoffeeFuturesSite() {
     });
 
     const forecastPoints: ChartPoint[] = forecastPath.map((row) => {
-      const date = new Date(row.date);
+      const date = parseLocalDate(row.date);
 
       return {
         date,
