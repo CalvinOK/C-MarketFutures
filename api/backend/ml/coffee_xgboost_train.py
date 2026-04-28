@@ -949,6 +949,8 @@ def main() -> None:
 
     # Try to use the live front price from snapshot.json as the anchor.
     live_front_price: float | None = None
+    _api_root = Path(__file__).resolve().parents[2]
+    WEB_PUBLIC_DATA = _api_root.parent / "website" / "public" / "data"
     snapshot_path = WEB_PUBLIC_DATA / "snapshot.json"
     if snapshot_path.exists():
         try:
