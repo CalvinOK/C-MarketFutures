@@ -639,7 +639,7 @@ export default function CoffeeFuturesSite() {
   const displayHeadlines = liveNews
     ? liveNews.map((n) => ({
         title: n.text,
-        source: n.category,
+        source: n.source ?? n.category,
         date: formatNewsDate(n.timestamp),
         url: n.url || null,
       }))
@@ -1350,9 +1350,8 @@ export default function CoffeeFuturesSite() {
                   const isSucafina = item.kind === "sucafina";
                   const inner = isSucafina ? (
                     <>
-                      <div className="flex items-center justify-between gap-3 text-[10px] uppercase tracking-[0.16em] text-[var(--muted)]">
+                      <div className="text-[10px] uppercase tracking-[0.16em] text-[var(--muted)]">
                         <span>{item.source}</span>
-                        {item.date ? <span>{item.date}</span> : null}
                       </div>
                       <h3 className="mt-1.5 text-sm font-medium leading-5 text-[var(--ink)]">
                         {item.title}
@@ -1363,9 +1362,8 @@ export default function CoffeeFuturesSite() {
                     </>
                   ) : (
                     <>
-                      <div className="flex items-center justify-between gap-3 text-[10px] uppercase tracking-[0.16em] text-[var(--muted)]">
+                      <div className="text-[10px] uppercase tracking-[0.16em] text-[var(--muted)]">
                         <span>{item.source}</span>
-                        {item.date ? <span>{item.date}</span> : null}
                       </div>
                       <h3 className="mt-1.5 text-sm font-medium leading-5 text-[var(--ink)]">
                         {item.title}

@@ -19,6 +19,14 @@ const QUERIES = [
 
 const LOOKBACK_WINDOWS_DAYS = [30, 90, 365]
 
+const BLOCKED_SOURCES = ['stonex']
+
+function isBlockedSource(sourceName: string, url: string): boolean {
+  const lowerName = sourceName.toLowerCase()
+  const lowerUrl = url.toLowerCase()
+  return BLOCKED_SOURCES.some((s) => lowerName.includes(s) || lowerUrl.includes(s))
+}
+
 const COFFEE_DIRECT_TERMS = [
   'coffee futures',
   'arabica futures',
@@ -105,7 +113,7 @@ async function fetchWindowArticles(apiKey: string, fromDate: string, seen: Set<s
           `&from=${fromDate}` +
           `&language=en` +
           `&sortBy=publishedAt` +
-          `&pageSize=10` +
+          `&pageSize=20` +
           `&apiKey=${apiKey}`,
         { cache: 'no-store' },
         8_000,
@@ -124,6 +132,9 @@ async function fetchWindowArticles(apiKey: string, fromDate: string, seen: Set<s
         if (!title || title === '[Removed]') continue
         const description = a?.description ?? null
         if (!isRelevantCoffeeNews(title, description)) continue
+        const sourceName = a?.source?.name ?? ''
+        const articleUrl = a?.url ?? ''
+        if (isBlockedSource(sourceName, articleUrl)) continue
         const hash = hashHeadline(title)
         if (seen.has(hash)) continue
         seen.add(hash)
@@ -144,6 +155,20 @@ async function fetchWindowArticles(apiKey: string, fromDate: string, seen: Set<s
   return windowArticles
 }
 
+function diversifyBySource(articles: RawArticle[], maxPerSource = 2): RawArticle[] {
+  const counts = new Map<string, number>()
+  const result: RawArticle[] = []
+  for (const a of articles) {
+    const src = a.source.name.toLowerCase()
+    const count = counts.get(src) ?? 0
+    if (count < maxPerSource) {
+      result.push(a)
+      counts.set(src, count + 1)
+    }
+  }
+  return result
+}
+
 export async function fetchCoffeeNews(): Promise<RawArticle[]> {
   const apiKey = process.env.NEWS_API_KEY
   if (!apiKey) throw new Error('NEWS_API_KEY is not set')
@@ -158,14 +183,15 @@ export async function fetchCoffeeNews(): Promise<RawArticle[]> {
       new Set(articles.map((article) => hashHeadline(article.title))),
     )
     articles.push(...windowArticles)
-    if (articles.length >= 3) {
+    if (articles.length >= 20) {
       break
     }
   }
 
-  return deduplicateArticles(articles).sort(
+  const deduped = deduplicateArticles(articles).sort(
     (left, right) => parseDateOrEpoch(right.publishedAt) - parseDateOrEpoch(left.publishedAt),
   )
+  return diversifyBySource(deduped, 2)
 }
 
 function deduplicateArticles(articles: RawArticle[]): RawArticle[] {
