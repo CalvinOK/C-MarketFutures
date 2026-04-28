@@ -733,9 +733,12 @@ export default function CoffeeFuturesSite() {
       return null;
     }
 
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
     const historyDates = visibleHistory.map((row) => parseLocalDate(row.date));
     const forecastDates = forecastPath.map((row) => parseLocalDate(row.date));
-    const allDates = [...historyDates, ...forecastDates];
+    const allDates = [...historyDates, today, ...forecastDates];
 
     const monthKeys = Array.from(
       new Set(
@@ -747,7 +750,7 @@ export default function CoffeeFuturesSite() {
     );
 
     const msPerWeek = 7 * 24 * 60 * 60 * 1000;
-    const asOfDate = parseLocalDate(forecastPath[0].asOfDate);
+    const asOfDate = today;
     const currentPrice = visibleHistory[visibleHistory.length - 1].price;
     const sigmaWeekly = stddev(
       forecastPath.map((row) => row.predictedWeeklyLogReturn),
@@ -815,21 +818,37 @@ export default function CoffeeFuturesSite() {
       };
     });
 
-    const forecastPoints: ChartPoint[] = forecastPath.map((row) => {
-      const date = parseLocalDate(row.date);
+    const todayAnchor: ChartPoint = {
+      date: today,
+      x: toMonthX(today),
+      y: toY(currentPrice),
+      label: today.toLocaleDateString("en-US", { month: "short" }),
+      projectedPrice: currentPrice,
+    };
 
-      return {
-        date,
-        x: toMonthX(date),
-        y: toY(row.projectedPrice),
-        label: date.toLocaleDateString("en-US", { month: "short" }),
-        projectedPrice: row.projectedPrice,
-      };
-    });
+    const forecastPoints: ChartPoint[] = [
+      todayAnchor,
+      ...forecastPath.map((row) => {
+        const date = parseLocalDate(row.date);
+
+        return {
+          date,
+          x: toMonthX(date),
+          y: toY(row.projectedPrice),
+          label: date.toLocaleDateString("en-US", { month: "short" }),
+          projectedPrice: row.projectedPrice,
+        };
+      }),
+    ];
+
+    const allForecastBands: ForecastBandRow[] = [
+      { date: today, projectedPrice: currentPrice, upper: currentPrice, lower: currentPrice },
+      ...forecastBands,
+    ];
 
     const bandPolygon = [
-      ...forecastBands.map((band) => `${toMonthX(band.date)},${toY(band.upper)}`),
-      ...forecastBands
+      ...allForecastBands.map((band) => `${toMonthX(band.date)},${toY(band.upper)}`),
+      ...allForecastBands
         .slice()
         .reverse()
         .map((band) => `${toMonthX(band.date)},${toY(band.lower)}`),
@@ -908,7 +927,7 @@ export default function CoffeeFuturesSite() {
       forecastMeanPrice,
       monthTicks: filteredTicks,
       yAxisTicks,
-      dividerX: historyPoints[historyPoints.length - 1].x,
+      dividerX: toMonthX(today),
       plotBottom: height - bottom,
       plotRight: width - right,
       toMonthX,
