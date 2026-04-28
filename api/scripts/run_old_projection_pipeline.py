@@ -36,7 +36,13 @@ def _python_executable() -> str:
     return sys.executable
 
 
-def _run_step(label: str, script_path: Path, cwd: Path, timeout_seconds: int = 1800) -> None:
+def _run_step(
+    label: str,
+    script_path: Path,
+    cwd: Path,
+    timeout_seconds: int = 1800,
+    extra_env: dict[str, str] | None = None,
+) -> None:
     cmd = [_python_executable(), str(script_path)]
     print(f"[pipeline] Running {label}: {' '.join(cmd)}")
 
@@ -51,6 +57,9 @@ def _run_step(label: str, script_path: Path, cwd: Path, timeout_seconds: int = 1
     # also write to the writable /tmp path.
     if _runtime:
         env["RUNTIME_DATA_DIR"] = _runtime
+
+    if extra_env:
+        env.update(extra_env)
 
     proc = subprocess.run(
         cmd,
@@ -112,23 +121,46 @@ def _sync_outputs(paths: list[Path]) -> None:
             shutil.copy2(path, api_dst)
 
 
+def _prepare_runtime_logdata() -> dict[str, str]:
+    """
+    On serverless, copy the bundled logdata CSVs to a writable /tmp directory
+    so fetch_logdata.py can extend them with an incremental Databento fetch.
+    Returns a dict of extra env vars to pass to subprocesses.
+    """
+    if not _IS_SERVERLESS or not _runtime:
+        return {}
+
+    runtime_logdata = Path(_runtime) / "logdata"
+    runtime_logdata.mkdir(parents=True, exist_ok=True)
+
+    bundled_logdata = API_ROOT / "logdata"
+    if bundled_logdata.exists():
+        for src in bundled_logdata.glob("*.csv"):
+            dst = runtime_logdata / src.name
+            if not dst.exists():
+                shutil.copy2(src, dst)
+                print(f"[pipeline] Copied bundled logdata: {src.name}")
+
+    return {"RUNTIME_LOGDATA_DIR": str(runtime_logdata)}
+
+
 def main() -> None:
     if not API_ROOT.exists():
         raise FileNotFoundError(f"Missing API folder: {API_ROOT}")
 
-    # fetch_logdata.py writes to api/logdata/ which is read-only on Vercel.
-    # Skip it and use the logdata bundled with the deployment. To get fresh
-    # data on Vercel, run fetch_logdata.py locally and redeploy.
-    if _IS_SERVERLESS:
-        print("[pipeline] Serverless environment — skipping logdata fetch (using bundled data).")
-    else:
-        _run_step("logdata fetch", SCRIPT_PATH.parent / "fetch_logdata.py", API_ROOT)
+    # On serverless, copy bundled logdata to /tmp then run an incremental fetch
+    # (only the days missing since the last bundled date — typically just a few
+    # rows, so this completes in seconds).  On local dev the full fetch runs
+    # against the bundled logdata directory directly.
+    logdata_env = _prepare_runtime_logdata()
+    _run_step("logdata fetch", SCRIPT_PATH.parent / "fetch_logdata.py", API_ROOT, extra_env=logdata_env)
 
     _run_step("data fetch", API_ROOT / "data_fetch.py", API_ROOT)
     _run_step(
         "data merge",
         API_ROOT / "backend" / "ml" / "coffee_data_merged.py",
         API_ROOT,
+        extra_env=logdata_env,
     )
     _run_step(
         "xgboost train",

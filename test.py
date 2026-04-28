@@ -70,15 +70,15 @@ def make_forecast_plot(
     # -----------------------------
     # Compute summary lines
     # -----------------------------
-    two_month_start = forecast_start - pd.Timedelta(days=60)
+    two_month_start = forecast_start - pd.DateOffset(months=2)
     recent_history = history[
         (history["date"] > two_month_start) & (history["date"] <= forecast_start)
     ]
 
     if recent_history.empty:
-        historical_monthly_avg = history.tail(42)["price"].mean()
+        historical_two_month_avg = history.tail(42)["price"].mean()
     else:
-        historical_monthly_avg = recent_history["price"].mean()
+        historical_two_month_avg = recent_history["price"].mean()
 
     projected_avg = forecast["price"].mean()
     final_forecast = forecast["price"].iloc[-1]
@@ -154,11 +154,11 @@ def make_forecast_plot(
     )
 
     ax.axhline(
-        historical_monthly_avg,
+        historical_two_month_avg,
         color=monthly_avg_color,
         linestyle="-.",
         linewidth=1.35,
-        label=f"Historical 2-month avg ({historical_monthly_avg:.1f}¢)",
+        label=f"Historical 2-month avg ({historical_two_month_avg:.1f}¢)",
     )
 
     ax.axhline(
@@ -249,7 +249,7 @@ def make_forecast_plot(
             color=monthly_avg_color,
             linestyle="-.",
             linewidth=1.35,
-            label=f"Historical 2-month avg ({historical_monthly_avg:.1f}¢)",
+            label=f"Historical 2-month avg ({historical_two_month_avg:.1f}¢)",
         ),
         Line2D(
             [0],

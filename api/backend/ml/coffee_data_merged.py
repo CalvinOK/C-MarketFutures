@@ -21,13 +21,15 @@ import pandas as pd
 warnings.filterwarnings("ignore")
 
 # Import paths from backend config instead of defining locally
-from backend.config import DATA_DIR, LOGDATA_DIR, OUTPUT_DIR
+from backend.config import DATA_DIR, LOGDATA_DIR, OUTPUT_DIR, RUNTIME_LOGDATA_DIR
 
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 OUTPUT_FILE = OUTPUT_DIR / "coffee_model_dataset_merged.csv"
 
-COFFEE_FILE = LOGDATA_DIR / "CoffeeCData_log_returns.csv"
+# Prefer runtime logdata (freshly fetched to /tmp on serverless) when available.
+_effective_logdata = RUNTIME_LOGDATA_DIR if RUNTIME_LOGDATA_DIR is not None else LOGDATA_DIR
+COFFEE_FILE = _effective_logdata / "CoffeeCData_log_returns.csv"
 
 API_WEEKLY_PANEL_CANDIDATES = [
     DATA_DIR / "kc_model_panel_weekly_asof.csv",

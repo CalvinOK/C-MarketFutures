@@ -81,10 +81,18 @@ _load_dotenv(PROJECT_ROOT / ".env.local")
 LOGDATA_DIR = API_ROOT / "logdata"
 LOGDATA_DIR.mkdir(parents=True, exist_ok=True)
 
+# On serverless Vercel, RUNTIME_LOGDATA_DIR is set to a writable /tmp path.
+# Writes go there; the bundled LOGDATA_DIR is still used as a read fallback by
+# _merge_with_existing so that we only need to fetch incremental rows.
+_runtime_logdata = os.environ.get("RUNTIME_LOGDATA_DIR", "").strip()
+_logdata_write_dir = Path(_runtime_logdata) if _runtime_logdata else LOGDATA_DIR
+if _runtime_logdata:
+    Path(_runtime_logdata).mkdir(parents=True, exist_ok=True)
+
 # Output filenames must match what coffee_data_merged.py expects.
 OUTPUT_FILES = {
-    "coffee": LOGDATA_DIR / "CoffeeCData_log_returns.csv",
-    "soybeans": LOGDATA_DIR / "US Soybeans Futures Historical Data_log_returns.csv",
+    "coffee": _logdata_write_dir / "CoffeeCData_log_returns.csv",
+    "soybeans": _logdata_write_dir / "US Soybeans Futures Historical Data_log_returns.csv",
 }
 
 # Earliest date that matches the existing logdata history.
