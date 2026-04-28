@@ -751,7 +751,7 @@ export default function CoffeeFuturesSite() {
 
     const msPerWeek = 7 * 24 * 60 * 60 * 1000;
     const asOfDate = today;
-    const currentPrice = visibleHistory[visibleHistory.length - 1].price;
+    const currentPrice = liveSnapshot?.frontPrice ?? visibleHistory[visibleHistory.length - 1].price;
     const sigmaWeekly = stddev(
       forecastPath.map((row) => row.predictedWeeklyLogReturn),
     );
@@ -932,7 +932,7 @@ export default function CoffeeFuturesSite() {
       plotRight: width - right,
       toMonthX,
     };
-  }, [visibleHistory, forecastPath]);
+  }, [visibleHistory, forecastPath, liveSnapshot]);
 
   const hoveredPoint = chart
     ? hoveredHistoryIndex !== null
