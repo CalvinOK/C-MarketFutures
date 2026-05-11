@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/projected-spot/refresh",
+      "schedule": "0 11 * * 1"
+    }
+  ]
+}

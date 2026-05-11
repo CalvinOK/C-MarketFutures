@@ -8,6 +8,7 @@
 import cron from 'node-cron'
 import { runNewsIngestion } from '@/lib/workers/newsIngestion'
 import { runContractsIngestion } from '@/lib/workers/contractsIngestion'
+import { runProjectionRefresh } from '@/lib/workers/projectionRefresh'
 import { validateWorkerEnv } from '@/lib/env'
 
 function safe(label: string, fn: () => Promise<void>): () => void {
@@ -34,6 +35,15 @@ cron.schedule(
 // ─── News ─────────────────────────────────────────────────────────────────────
 // Every 20 min, all hours
 cron.schedule('*/20 * * * *', safe('news', runNewsIngestion))
+
+// ─── Projection refresh ──────────────────────────────────────────────────────
+// Weekly XGBoost retrain — Monday 06:00 ET, so the chart shows a projection
+// anchored to the current week before traders look at it Monday morning.
+cron.schedule(
+  '0 6 * * 1',
+  safe('projection-refresh', runProjectionRefresh),
+  { timezone: 'America/New_York' },
+)
 
 // ─── Startup warm-up ─────────────────────────────────────────────────────────
 validateWorkerEnv()

@@ -317,6 +317,57 @@ function parseLocalDate(dateStr: string): Date {
   return new Date(year, month - 1, day);
 }
 
+function formatIsoDate(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+// Re-anchor the projection so step 1 = today + 7d, step 2 = today + 14d, …
+// and the whole price curve is rescaled to the live front price. This keeps
+// the chart aligned with "today" even when the CSV is a few days/weeks stale,
+// while preserving the exact shape the ML pipeline produced (including the
+// terminal alignment baked into projected_price).
+function reanchorForecastPath(
+  forecast: WeeklyPathRow[],
+  today: Date,
+  currentPrice: number,
+): WeeklyPathRow[] {
+  if (forecast.length === 0) return forecast;
+  if (!Number.isFinite(currentPrice) || currentPrice <= 0) return forecast;
+
+  const anchor = new Date(today);
+  anchor.setHours(0, 0, 0, 0);
+  const todayIso = formatIsoDate(anchor);
+  const msPerDay = 24 * 60 * 60 * 1000;
+
+  // Recover the price the model was anchored to via the first row's
+  // pre-alignment log-return (projected_price / exp(return) = price one step
+  // before step 1). When currentPrice matches that anchor, scale ≈ 1 and the
+  // chart shows the exact model output.
+  const firstReturn = Number.isFinite(forecast[0].predictedWeeklyLogReturn)
+    ? forecast[0].predictedWeeklyLogReturn
+    : 0;
+  const impliedAnchor = forecast[0].projectedPrice / Math.exp(firstReturn);
+  const scale =
+    Number.isFinite(impliedAnchor) && impliedAnchor > 0
+      ? currentPrice / impliedAnchor
+      : 1;
+
+  return forecast.map((row, idx) => {
+    const stepWeek = idx + 1;
+    const stepDate = new Date(anchor.getTime() + stepWeek * 7 * msPerDay);
+    return {
+      ...row,
+      asOfDate: todayIso,
+      stepWeek,
+      date: formatIsoDate(stepDate),
+      projectedPrice: row.projectedPrice * scale,
+    };
+  });
+}
+
 function stddev(values: number[]): number {
   const finiteValues = values.filter((value) => Number.isFinite(value));
 
@@ -720,6 +771,29 @@ export default function CoffeeFuturesSite() {
     return filteredHistory.length > 0 ? filteredHistory : history;
   }, [history]);
 
+  // The CSV stores projections relative to whatever date the ML pipeline last
+  // ran on. Re-anchor it here so the chart always shows weekly steps starting
+  // from today, priced from the live front price. This keeps the chart honest
+  // even if the cron hasn't refreshed the CSV yet.
+  const displayForecastPath = useMemo(() => {
+    if (forecastPath.length === 0) return forecastPath;
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const currentPrice =
+      liveSnapshot?.frontPrice ??
+      (visibleHistory.length > 0
+        ? visibleHistory[visibleHistory.length - 1].price
+        : undefined);
+
+    if (!Number.isFinite(currentPrice) || !currentPrice || currentPrice <= 0) {
+      return forecastPath;
+    }
+
+    return reanchorForecastPath(forecastPath, today, currentPrice);
+  }, [forecastPath, liveSnapshot, visibleHistory]);
+
   const chart = useMemo(() => {
     const width = 920;
     const height = 360;
@@ -729,7 +803,7 @@ export default function CoffeeFuturesSite() {
     const top = 14;
     const bottom = 52;
 
-    if (visibleHistory.length === 0 || forecastPath.length === 0) {
+    if (visibleHistory.length === 0 || displayForecastPath.length === 0) {
       return null;
     }
 
@@ -737,7 +811,7 @@ export default function CoffeeFuturesSite() {
     today.setHours(0, 0, 0, 0);
 
     const historyDates = visibleHistory.map((row) => parseLocalDate(row.date));
-    const forecastDates = forecastPath.map((row) => parseLocalDate(row.date));
+    const forecastDates = displayForecastPath.map((row) => parseLocalDate(row.date));
     const allDates = [...historyDates, today, ...forecastDates];
 
     const monthKeys = Array.from(
@@ -753,10 +827,10 @@ export default function CoffeeFuturesSite() {
     const asOfDate = today;
     const currentPrice = liveSnapshot?.frontPrice ?? visibleHistory[visibleHistory.length - 1].price;
     const sigmaWeekly = stddev(
-      forecastPath.map((row) => row.predictedWeeklyLogReturn),
+      displayForecastPath.map((row) => row.predictedWeeklyLogReturn),
     );
 
-    const forecastBands: ForecastBandRow[] = forecastPath.map((row) => {
+    const forecastBands: ForecastBandRow[] = displayForecastPath.map((row) => {
       const forecastDate = parseLocalDate(row.date);
       const weeksElapsed = Math.max(
         (forecastDate.getTime() - asOfDate.getTime()) / msPerWeek,
@@ -775,7 +849,7 @@ export default function CoffeeFuturesSite() {
 
     const priceValues = [
       ...visibleHistory.map((row) => row.price),
-      ...forecastPath.map((row) => row.projectedPrice),
+      ...displayForecastPath.map((row) => row.projectedPrice),
       ...forecastBands.flatMap((band) => [band.upper, band.lower]),
     ];
 
@@ -828,7 +902,7 @@ export default function CoffeeFuturesSite() {
 
     const forecastPoints: ChartPoint[] = [
       todayAnchor,
-      ...forecastPath.map((row) => {
+      ...displayForecastPath.map((row) => {
         const date = parseLocalDate(row.date);
 
         return {
@@ -886,7 +960,8 @@ export default function CoffeeFuturesSite() {
       label: value.toFixed(0),
     }));
 
-    const futureProjectionValue = forecastPath[forecastPath.length - 1].projectedPrice;
+    const futureProjectionValue =
+      displayForecastPath[displayForecastPath.length - 1].projectedPrice;
     const futureProjectionY = toY(futureProjectionValue);
 
     // Calculate mean prices
@@ -901,9 +976,9 @@ export default function CoffeeFuturesSite() {
     const historyMeanY = toY(historyMeanPrice);
 
     const forecastMeanPrice =
-      forecastPath.length > 0
-        ? forecastPath.reduce((sum, row) => sum + row.projectedPrice, 0) /
-          forecastPath.length
+      displayForecastPath.length > 0
+        ? displayForecastPath.reduce((sum, row) => sum + row.projectedPrice, 0) /
+          displayForecastPath.length
         : 0;
     const forecastMeanY = toY(forecastMeanPrice);
 
@@ -932,7 +1007,7 @@ export default function CoffeeFuturesSite() {
       plotRight: width - right,
       toMonthX,
     };
-  }, [visibleHistory, forecastPath, liveSnapshot]);
+  }, [visibleHistory, displayForecastPath, liveSnapshot]);
 
   const hoveredPoint = chart
     ? hoveredHistoryIndex !== null
@@ -943,7 +1018,7 @@ export default function CoffeeFuturesSite() {
     : null;
 
   const chartDownloadCsv = useMemo(() => {
-    if (visibleHistory.length === 0 && forecastPath.length === 0) {
+    if (visibleHistory.length === 0 && displayForecastPath.length === 0) {
       return "";
     }
 
@@ -953,14 +1028,14 @@ export default function CoffeeFuturesSite() {
         (row) =>
           `history,${row.date},${row.price.toFixed(6)},,,,,`,
       ),
-      ...forecastPath.map(
+      ...displayForecastPath.map(
         (row) =>
           `forecast,${row.date},${row.projectedPrice.toFixed(6)},${row.asOfDate},${row.stepWeek},${row.predictedWeeklyLogReturn.toFixed(8)},${row.anchorWeeklyLogReturn.toFixed(8)},${row.raw1wLogReturn.toFixed(8)}`,
       ),
     ];
 
     return lines.join("\n");
-  }, [visibleHistory, forecastPath]);
+  }, [visibleHistory, displayForecastPath]);
 
   const handleDownloadChartData = () => {
     if (!chartDownloadCsv) {
