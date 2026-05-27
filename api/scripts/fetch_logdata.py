@@ -500,6 +500,8 @@ def run(
             ))
             continue
 
+        raw_df = None
+        databento_error: str | None = None
         try:
             raw_df = fetch_databento_history(
                 name=inst.name,
@@ -512,7 +514,23 @@ def run(
                 client=client,
             )
         except Exception as db_exc:
+            databento_error = str(db_exc)
             print(f"  [{inst.name}] Databento failed: {db_exc}")
+
+        # Treat "Databento returned rows but every close is NaN" the same as an
+        # outright failure. Hit a real case where KC.c.0 silently returned a
+        # single row with all-blank OHLCV for the requested window, which
+        # skipped the Yahoo fallback and left a gap in the merged dataset.
+        if raw_df is not None and inst.output_key == "coffee":
+            close_series = pd.to_numeric(raw_df.get("close"), errors="coerce")
+            if close_series.dropna().empty:
+                databento_error = (
+                    f"Databento returned {len(raw_df)} row(s) with no usable close prices"
+                )
+                print(f"  [{inst.name}] {databento_error}")
+                raw_df = None
+
+        if raw_df is None:
             # Yahoo Finance fallback for Coffee C continuous (KC=F)
             if inst.output_key == "coffee":
                 print(f"  [{inst.name}] Trying Yahoo Finance fallback (KC=F)...")
@@ -542,7 +560,7 @@ def run(
                     proxy_used=True,
                     rows_fetched=0,
                     output_path=str(OUTPUT_FILES[inst.output_key]),
-                    error=str(db_exc)[:80],
+                    error=(databento_error or "unknown error")[:80],
                 ))
                 continue
 
