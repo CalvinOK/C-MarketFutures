@@ -486,10 +486,14 @@ export default function CoffeeFuturesSite() {
         }
       } catch (error) {
         if (!cancelled) {
-          setDataError(
+          const statusMatch =
             error instanceof Error
-              ? error.message
-              : "Failed to load chart data.",
+              ? error.message.match(/^Failed to load projected spot API \((\d+)\)$/)
+              : null;
+          setDataError(
+            statusMatch
+              ? `Failed to load projected spot API (${statusMatch[1]})`
+              : "Failed to load projected spot data.",
           );
         }
       } finally {
@@ -563,10 +567,14 @@ export default function CoffeeFuturesSite() {
         }
       } else {
         setLiveSnapshot(null);
-        setSnapshotError(
+        const statusMatch =
           snapshotRes.reason instanceof Error
-            ? snapshotRes.reason.message
-            : "Failed to load live market snapshot.",
+            ? snapshotRes.reason.message.match(/^Failed to load \/api\/snapshot \((\d+)\)/)
+            : null;
+        setSnapshotError(
+          statusMatch
+            ? `Failed to load market snapshot (${statusMatch[1]})`
+            : "Failed to load market snapshot data.",
         );
       }
 
@@ -1654,7 +1662,7 @@ export default function CoffeeFuturesSite() {
                   ))}
                 </div>
               ) : (
-                <div className="mt-4 flex min-h-[8rem] items-center justify-center rounded-2xl border border-dashed border-[var(--line)] bg-white/50 px-4 text-center text-sm text-[var(--muted)]">
+                <div className="mt-4 flex items-center justify-center rounded-2xl border border-dashed border-[var(--line)] bg-white/50 px-4 py-6 text-center text-sm text-[var(--muted)]">
                   {snapshotLoading ? "Loading snapshot data..." : snapshotError}
                 </div>
               )}
