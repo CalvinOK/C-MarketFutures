@@ -5,7 +5,7 @@ from pathlib import Path
 
 from flask import Flask, jsonify, request, Response
 
-from api.runner import run_local_script
+from .runner import run_local_script
 
 app = Flask(__name__)
 
