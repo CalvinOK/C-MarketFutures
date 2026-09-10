@@ -280,7 +280,7 @@ def contracts():
     if needs_refresh and script:
         refresh_result = _maybe_run_refresh_script(script)
 
-    if refresh_result and not refresh_result.get("ok", False):
+    if refresh_result and not refresh_result.get("ok", False) and run_refresh:
         return jsonify({"error": "Contracts refresh script failed", "detail": refresh_result}), 500
 
     try:
@@ -296,6 +296,8 @@ def contracts():
 
     latest_ts = max((r.get("captured_at", "") for r in rows), default=None)
     payload = {"data": rows, "_freshness": _check_freshness("contracts", latest_ts)}
+    if refresh_result and not refresh_result.get("ok", False):
+        payload["_freshness"]["pipeline_error"] = refresh_result.get("stderr", "")
 
     _write_cached("contracts", cutoff_friday, payload)
     response = jsonify(payload)
@@ -313,6 +315,7 @@ def snapshot():
         "script",
         _get_contracts_script_path(),
     )
+    refresh_result = None
     snapshot_path = _first_existing_path("snapshot.json", JSON_DATA_DIRS)
     is_stale = bool(snapshot_path and _file_is_stale_since_last_friday(snapshot_path, cutoff_friday))
     needs_refresh = run_refresh or snapshot_path is None or is_stale
@@ -323,7 +326,7 @@ def snapshot():
 
     if needs_refresh and script:
         refresh_result = _maybe_run_refresh_script(script)
-        if refresh_result and not refresh_result.get("ok", False):
+        if refresh_result and not refresh_result.get("ok", False) and run_refresh:
             return jsonify({"error": "Snapshot refresh script failed", "detail": refresh_result}), 500
 
     try:
@@ -338,6 +341,8 @@ def snapshot():
         return jsonify({"error": "snapshot.json must contain a JSON object"}), 500
 
     payload["_freshness"] = _check_freshness("snapshot", payload.get("asOf"))
+    if refresh_result and not refresh_result.get("ok", False):
+        payload["_freshness"]["pipeline_error"] = refresh_result.get("stderr", "")
     _write_cached("snapshot", cutoff_friday, payload)
     return jsonify(payload)
 
