@@ -16,19 +16,12 @@ RUNTIME_DATA_DIR = Path(os.getenv("RUNTIME_DATA_DIR", "/tmp/coffee-market-data")
 
 JSON_DATA_DIRS = [
     RUNTIME_DATA_DIR,
-    API_ROOT / "public" / "data",
-    API_ROOT / "data",
-    PROJECT_ROOT / "website" / "public" / "data",
-    PROJECT_ROOT / "old" / "api 2" / "data",
 ]
 
 CSV_DATA_DIRS = [
     RUNTIME_DATA_DIR,
-    API_ROOT / "public" / "data",
     API_ROOT / "outputs",
-    PROJECT_ROOT / "website" / "public" / "data",
     PROJECT_ROOT / "outputs",
-    PROJECT_ROOT / "old" / "api 2" / "outputs",
 ]
 
 MARKET_CACHE: dict[str, dict] = {}
@@ -64,6 +57,24 @@ def _check_freshness(endpoint: str, timestamp_str: str | None) -> dict:
         }
     except (ValueError, TypeError):
         return {"stale": True, "reason": "unparseable_timestamp"}
+
+
+def _freshness_error(endpoint: str, freshness: dict):
+    return jsonify(
+        {
+            "error": f"{endpoint} data is stale",
+            "_freshness": freshness,
+        }
+    ), 503
+
+
+def _refresh_error(endpoint: str, refresh_result: dict):
+    return jsonify(
+        {
+            "error": f"{endpoint} refresh failed",
+            "detail": refresh_result,
+        }
+    ), 503
 
 
 def _last_friday(d: date) -> date:
@@ -199,9 +210,11 @@ def projected_spot():
     cutoff_friday = _last_friday(datetime.now(UTC).date())
     cached = _read_cached("projected-spot", cutoff_friday)
     if isinstance(cached, dict):
-        if request.args.get("format") == "csv":
-            return Response(cached["forecastCsv"], mimetype="text/csv")
-        return jsonify(cached)
+        freshness = cached.get("_freshness", {})
+        if not freshness.get("stale", True):
+            if request.args.get("format") == "csv":
+                return Response(cached["forecastCsv"], mimetype="text/csv")
+            return jsonify(cached)
 
     refresh_result = None
     run_refresh = request.args.get("run", "false").lower() in {"1", "true", "yes"}
@@ -219,8 +232,7 @@ def projected_spot():
     if needs_refresh and script:
         refresh_result = _maybe_run_refresh_script(script)
         if refresh_result and not refresh_result.get("ok", False):
-            if run_refresh:
-                return jsonify({"error": "Projection refresh script failed", "detail": refresh_result}), 500
+            return _refresh_error("Projection", refresh_result)
 
     try:
         history_path = _require_file("coffee_xgb_proj4_history.csv", CSV_DATA_DIRS)
@@ -251,7 +263,10 @@ def projected_spot():
     if refresh_result is not None:
         payload["scriptRun"] = refresh_result
         if not refresh_result.get("ok"):
-            payload["_freshness"]["pipeline_error"] = refresh_result.get("stderr", "")
+            return _refresh_error("Projection", refresh_result)
+
+    if payload["_freshness"].get("stale", True):
+        return _freshness_error("Projection", payload["_freshness"])
 
     _write_cached("projected-spot", cutoff_friday, payload)
     return jsonify(payload)
@@ -280,8 +295,8 @@ def contracts():
     if needs_refresh and script:
         refresh_result = _maybe_run_refresh_script(script)
 
-    if refresh_result and not refresh_result.get("ok", False) and run_refresh:
-        return jsonify({"error": "Contracts refresh script failed", "detail": refresh_result}), 500
+    if refresh_result and not refresh_result.get("ok", False):
+        return _refresh_error("Contracts", refresh_result)
 
     try:
         contracts_path = _require_file("contracts.json", JSON_DATA_DIRS)
@@ -297,7 +312,10 @@ def contracts():
     latest_ts = max((r.get("captured_at", "") for r in rows), default=None)
     payload = {"data": rows, "_freshness": _check_freshness("contracts", latest_ts)}
     if refresh_result and not refresh_result.get("ok", False):
-        payload["_freshness"]["pipeline_error"] = refresh_result.get("stderr", "")
+        return _refresh_error("Contracts", refresh_result)
+
+    if payload["_freshness"].get("stale", True):
+        return _freshness_error("Contracts", payload["_freshness"])
 
     _write_cached("contracts", cutoff_friday, payload)
     response = jsonify(payload)
@@ -326,8 +344,8 @@ def snapshot():
 
     if needs_refresh and script:
         refresh_result = _maybe_run_refresh_script(script)
-        if refresh_result and not refresh_result.get("ok", False) and run_refresh:
-            return jsonify({"error": "Snapshot refresh script failed", "detail": refresh_result}), 500
+        if refresh_result and not refresh_result.get("ok", False):
+            return _refresh_error("Snapshot", refresh_result)
 
     try:
         path = _require_file("snapshot.json", JSON_DATA_DIRS)
@@ -342,7 +360,9 @@ def snapshot():
 
     payload["_freshness"] = _check_freshness("snapshot", payload.get("asOf"))
     if refresh_result and not refresh_result.get("ok", False):
-        payload["_freshness"]["pipeline_error"] = refresh_result.get("stderr", "")
+        return _refresh_error("Snapshot", refresh_result)
+    if payload["_freshness"].get("stale", True):
+        return _freshness_error("Snapshot", payload["_freshness"])
     _write_cached("snapshot", cutoff_friday, payload)
     return jsonify(payload)
 
@@ -362,7 +382,13 @@ def news():
     )
 
     cached = _read_cached("news", cutoff_friday)
-    if isinstance(cached, dict) and "data" in cached and not run_refresh and not file_too_old:
+    if (
+        isinstance(cached, dict)
+        and "data" in cached
+        and not cached.get("_freshness", {}).get("stale", True)
+        and not run_refresh
+        and not file_too_old
+    ):
         return jsonify(cached)
 
     needs_refresh = run_refresh or news_path is None or file_too_old
@@ -370,8 +396,7 @@ def news():
         script = request.args.get("script", os.getenv("NEWS_SCRIPT", DEFAULT_NEWS_SCRIPT))
         refresh_result = _maybe_run_refresh_script(script)
         if refresh_result and not refresh_result.get("ok", False):
-            if run_refresh:
-                return jsonify({"error": "News refresh script failed", "detail": refresh_result}), 500
+            return _refresh_error("News", refresh_result)
 
     try:
         path = _require_file("news.json", JSON_DATA_DIRS)
@@ -392,6 +417,9 @@ def news():
     latest_ts = max((item.get("timestamp", "") for item in items), default=None)
     payload = {"data": items, "_freshness": _check_freshness("news", latest_ts)}
 
+    if payload["_freshness"].get("stale", True):
+        return _freshness_error("News", payload["_freshness"])
+
     _write_cached("news", cutoff_friday, payload)
     return jsonify(payload)
 
@@ -402,7 +430,11 @@ def brief():
     cutoff_friday = _last_friday(datetime.now(UTC).date())
     run_refresh = request.args.get("run", "false").lower() in {"1", "true", "yes"}
     cached = _read_cached("brief", cutoff_friday)
-    if isinstance(cached, dict) and not run_refresh:
+    if (
+        isinstance(cached, dict)
+        and not cached.get("_freshness", {}).get("stale", True)
+        and not run_refresh
+    ):
         return jsonify(cached)
 
     brief_path = _first_existing_path("roaster_brief.json", JSON_DATA_DIRS)
@@ -417,8 +449,7 @@ def brief():
         script = request.args.get("script", os.getenv("BRIEF_SCRIPT", DEFAULT_BRIEF_SCRIPT))
         refresh_result = _maybe_run_refresh_script(script)
         if refresh_result and not refresh_result.get("ok", False):
-            if run_refresh:
-                return jsonify({"error": "Brief refresh script failed", "detail": refresh_result}), 500
+            return _refresh_error("Brief", refresh_result)
 
     try:
         path = _require_file("roaster_brief.json", JSON_DATA_DIRS)
@@ -432,6 +463,8 @@ def brief():
         return jsonify({"error": "roaster_brief.json must contain a JSON object"}), 500
 
     payload["_freshness"] = _check_freshness("brief", payload.get("generated_at"))
+    if payload["_freshness"].get("stale", True):
+        return _freshness_error("Brief", payload["_freshness"])
 
     # Inject current snapshot so callers always get live prices alongside the narrative.
     snapshot_path = _first_existing_path("snapshot.json", JSON_DATA_DIRS)

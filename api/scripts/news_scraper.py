@@ -23,7 +23,7 @@ PROJECT_ROOT = ROOT.parent
 DEFAULT_OUTPUT_DIR = (
     Path(os.getenv("RUNTIME_DATA_DIR"))
     if os.getenv("RUNTIME_DATA_DIR")
-    else ROOT / "data"
+    else Path("/tmp/coffee-market-data")
 )
 
 NEWS_API_BASE = "https://newsapi.org/v2/everything"

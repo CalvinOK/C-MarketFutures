@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parents[1]
-DATA_DIR = BASE_DIR / 'data'
+DATA_DIR = BASE_DIR.parent / 'outside data'
 LOGDATA_DIR = BASE_DIR / 'logdata'
 
 # On Vercel (serverless), the source tree is read-only at /var/task.

@@ -48,7 +48,7 @@ DEFAULT_BACKOFF_SECONDS = 1.25
 DEFAULT_OUTPUT_DIR = (
     Path(os.getenv("RUNTIME_DATA_DIR"))
     if os.getenv("RUNTIME_DATA_DIR")
-    else (Path(__file__).resolve().parents[2] / "website" / "public" / "data")
+    else Path("/tmp/coffee-market-data")
 )
 
 MONTH_CODE_TO_MONTH = {

@@ -28,7 +28,7 @@ SUCAFINA_URL = "https://sucafina.com/na/lp/market-report"
 DEFAULT_OUTPUT_DIR = (
     Path(os.getenv("RUNTIME_DATA_DIR"))
     if os.getenv("RUNTIME_DATA_DIR")
-    else ROOT / "data"
+    else Path("/tmp/coffee-market-data")
 )
 
 MONTH_MAP = {

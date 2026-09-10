@@ -10,6 +10,8 @@
 !.env.example
 !**/.env.example
 
+/outside data/
+
 # Python cache and local env
 __pycache__/
 **/__pycache__/

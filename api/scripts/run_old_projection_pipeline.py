@@ -28,10 +28,6 @@ _IS_SERVERLESS = bool(
     or str(API_ROOT).startswith("/var/task")
 )
 
-WEBSITE_PUBLIC_DATA = PROJECT_ROOT / "website" / "public" / "data"
-API_PUBLIC_DATA = API_ROOT / "public" / "data"
-
-
 def _python_executable() -> str:
     return sys.executable
 
@@ -98,29 +94,6 @@ def _build_history_csv() -> Path:
     return out_path
 
 
-def _sync_outputs(paths: list[Path]) -> None:
-    # On Vercel, outputs are already in RUNTIME_DATA_DIR which the Flask API
-    # searches first. Writing to WEBSITE_PUBLIC_DATA / API_PUBLIC_DATA would
-    # hit read-only /var/task and fail, so skip the sync entirely.
-    if _IS_SERVERLESS:
-        print("[pipeline] Serverless environment — skipping filesystem sync.")
-        return
-
-    WEBSITE_PUBLIC_DATA.mkdir(parents=True, exist_ok=True)
-    API_PUBLIC_DATA.mkdir(parents=True, exist_ok=True)
-
-    for path in paths:
-        if not path.exists():
-            continue
-        website_dst = WEBSITE_PUBLIC_DATA / path.name
-        api_dst = API_PUBLIC_DATA / path.name
-
-        if path.resolve() != website_dst.resolve():
-            shutil.copy2(path, website_dst)
-        if path.resolve() != api_dst.resolve():
-            shutil.copy2(path, api_dst)
-
-
 def _prepare_runtime_logdata() -> dict[str, str]:
     """
     On serverless, copy the bundled logdata CSVs to a writable /tmp directory
@@ -169,17 +142,6 @@ def main() -> None:
     )
 
     history_path = _build_history_csv()
-
-    _sync_outputs(
-        [
-            history_path,
-            API_OUTPUTS / "coffee_xgb_proj4_rolling_path.csv",
-            API_OUTPUTS / "coffee_xgb_proj4_latest_projection.csv",
-            API_OUTPUTS / "coffee_xgb_proj4_feature_importance.csv",
-            WEBSITE_PUBLIC_DATA / "contracts.json",
-            WEBSITE_PUBLIC_DATA / "snapshot.json",
-        ]
-    )
 
     print(f"[pipeline] Outputs written to: {API_OUTPUTS}")
     print("[pipeline] Completed projection pipeline refresh.")
