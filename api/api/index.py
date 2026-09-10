@@ -417,9 +417,6 @@ def news():
     latest_ts = max((item.get("timestamp", "") for item in items), default=None)
     payload = {"data": items, "_freshness": _check_freshness("news", latest_ts)}
 
-    if payload["_freshness"].get("stale", True):
-        return _freshness_error("News", payload["_freshness"])
-
     _write_cached("news", cutoff_friday, payload)
     return jsonify(payload)
 
