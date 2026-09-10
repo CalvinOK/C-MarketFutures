@@ -85,12 +85,18 @@ type TodayFeedItem =
     };
 
 type SnapshotData = {
-  frontPrice: number;
-  curveShape: "Contango" | "Backwardation";
-  totalVolume: number;
-  totalOpenInterest: number;
-  frontSymbol: string;
-  asOf: string;
+  front: number;
+  frontContract: string;
+  nextContract: string;
+  nextPrice: number;
+  shape: "Contango" | "Backwardation" | "Flat";
+  spread: number;
+  volume: number;
+  openInterest: number;
+  openInterestAsOf: string;
+  priceAsOf: string | null;
+  marketDate: string;
+  unit: "US¢/lb";
 };
 
 // ─── Display helpers ──────────────────────────────────────────────────────────
@@ -522,7 +528,7 @@ export default function CoffeeFuturesSite() {
       const [contractsRes, newsRes, snapshotRes, briefRes] = await Promise.allSettled([
         fetchJsonFromApi<ContractApiRow[]>(`/api/contracts${refreshQuery}`),
         fetchJsonFromApi<NewsApiItem[]>("/api/news"),
-        fetchJsonFromApi<SnapshotData>("/api/snapshot"),
+        fetchJsonFromApi<SnapshotData>("/api/coffee/market-snapshot"),
         fetchJsonFromApi<SucafinaBriefApiItem>("/api/brief"),
       ]);
 
@@ -552,11 +558,11 @@ export default function CoffeeFuturesSite() {
       if (snapshotRes.status === "fulfilled") {
         const data = snapshotRes.value;
         const isValidSnapshot =
-          Number.isFinite(Number(data?.frontPrice)) &&
-          Number(data.frontPrice) > 0 &&
-          (data.curveShape === "Contango" || data.curveShape === "Backwardation") &&
-          Number.isFinite(Number(data.totalVolume)) &&
-          Number.isFinite(Number(data.totalOpenInterest));
+          Number.isFinite(Number(data?.front)) &&
+          Number(data.front) > 0 &&
+          (data.shape === "Contango" || data.shape === "Backwardation" || data.shape === "Flat") &&
+          Number.isFinite(Number(data.volume)) &&
+          Number.isFinite(Number(data.openInterest));
 
         if (isValidSnapshot) {
           setLiveSnapshot(data);
@@ -569,7 +575,7 @@ export default function CoffeeFuturesSite() {
         setLiveSnapshot(null);
         const statusMatch =
           snapshotRes.reason instanceof Error
-            ? snapshotRes.reason.message.match(/^Failed to load \/api\/snapshot \((\d+)\)/)
+            ? snapshotRes.reason.message.match(/^Failed to load \/api\/coffee\/market-snapshot \((\d+)\)/)
             : null;
         setSnapshotError(
           statusMatch
@@ -647,7 +653,7 @@ export default function CoffeeFuturesSite() {
   const isLiveData = Boolean(
     liveContracts && liveContracts.length > 0 &&
     liveNews && liveNews.length > 0 &&
-    liveSnapshot && liveSnapshot.frontPrice,
+    liveSnapshot && liveSnapshot.front,
   );
 
   const sucafinaSummaryText = liveSucafinaBrief
@@ -678,28 +684,30 @@ export default function CoffeeFuturesSite() {
     ? [
         {
           label: "Front",
-          value: Number(liveSnapshot.frontPrice).toFixed(2),
+          value: Number(liveSnapshot.front).toFixed(2),
           sub: "US¢/lb",
           featured: true,
         },
         {
           label: "Shape",
-          value: liveSnapshot.curveShape,
+          value: liveSnapshot.shape,
           sub:
-            liveSnapshot.curveShape === "Contango"
+            liveSnapshot.shape === "Contango"
               ? "Deferred > spot"
-              : "Spot > deferred",
+              : liveSnapshot.shape === "Backwardation"
+                ? "Spot > deferred"
+                : "Front = deferred",
           featured: false,
         },
         {
           label: "Vol",
-          value: formatK(liveSnapshot.totalVolume),
+          value: formatK(liveSnapshot.volume),
           sub: "Shown",
           featured: false,
         },
         {
           label: "OI",
-          value: formatK(liveSnapshot.totalOpenInterest),
+          value: formatK(liveSnapshot.openInterest),
           sub: "Shown",
           featured: false,
         },
@@ -731,7 +739,7 @@ export default function CoffeeFuturesSite() {
     today.setHours(0, 0, 0, 0);
 
     const currentPrice =
-      liveSnapshot?.frontPrice ??
+      liveSnapshot?.front ??
       (visibleHistory.length > 0
         ? visibleHistory[visibleHistory.length - 1].price
         : undefined);
@@ -774,7 +782,7 @@ export default function CoffeeFuturesSite() {
 
     const msPerWeek = 7 * 24 * 60 * 60 * 1000;
     const asOfDate = today;
-    const currentPrice = liveSnapshot?.frontPrice ?? visibleHistory[visibleHistory.length - 1].price;
+    const currentPrice = liveSnapshot?.front ?? visibleHistory[visibleHistory.length - 1].price;
     const sigmaWeekly = stddev(
       displayForecastPath.map((row) => row.predictedWeeklyLogReturn),
     );
@@ -1034,7 +1042,7 @@ export default function CoffeeFuturesSite() {
 
   const handleDownloadLiveSnapshot = async () => {
     try {
-      await downloadApiJson("/api/snapshot", "snapshot_live");
+      await downloadApiJson("/api/coffee/market-snapshot", "snapshot_live");
     } catch (error) {
       setDataError(error instanceof Error ? error.message : "Failed to download live snapshot.");
     }

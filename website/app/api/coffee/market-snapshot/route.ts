@@ -1,5 +1,5 @@
 import { enforceRateLimit, requireInternalTokenIfConfigured } from '@/lib/apiGuard'
-import { getCoffeeMarketSnapshot } from '@/lib/coffeeMarketSnapshot'
+import { getLatestCoffeeMarketSnapshot } from '@/lib/supabaseServer'
 import { NextResponse } from 'next/server'
 
 export const dynamic = 'force-dynamic'
@@ -12,7 +12,13 @@ export async function GET(request: Request) {
   if (rateError) return rateError
 
   try {
-    const snapshot = await getCoffeeMarketSnapshot()
+    const snapshot = await getLatestCoffeeMarketSnapshot()
+    if (!snapshot) {
+      return NextResponse.json(
+        { error: 'No stored Coffee C market snapshot is available' },
+        { status: 404, headers: { 'Cache-Control': 'no-store' } },
+      )
+    }
     return NextResponse.json(snapshot, {
       headers: { 'Cache-Control': 'no-store' },
     })

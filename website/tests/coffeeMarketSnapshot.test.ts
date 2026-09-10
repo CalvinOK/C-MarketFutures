@@ -4,27 +4,25 @@ import {
   calculateCurveShape,
   calculateTotalVolume,
   parseContractMonth,
-  parseIceCoffeeContracts,
+  parseRenderedIceRows,
 } from '../lib/coffeeMarketSnapshot'
 
 test('orders Coffee C contract months chronologically', () => {
-  const contracts = parseIceCoffeeContracts(`
-    <table><tr><th>Contract</th><th>Last</th><th>Volume</th></tr>
-    <tr><td>Jul27</td><td>200.00</td><td>1,200</td></tr>
-    <tr><td>Dec26</td><td>210.00</td><td>19,113</td></tr>
-    <tr><td>Mar27</td><td>205.00</td><td>-</td></tr></table>
-  `)
+  const contracts = parseRenderedIceRows([
+    ['Jul27', '200.00', '14:02:00', '+0.10', '1,200'],
+    ['Dec26', '210.00', '14:02:00', '-0.10', '19,113'],
+    ['Mar27', '205.00', '14:02:00', '0.00', '-'],
+  ])
 
   assert.deepEqual(contracts.map((contract) => contract.contract), ['Dec26', 'Mar27', 'Jul27'])
   assert.deepEqual(parseContractMonth('May26'), { year: 2026, month: 5 })
 })
 
 test('parses comma-separated and blank volumes', () => {
-  const contracts = parseIceCoffeeContracts(`
-    <table><tr><th>Contract</th><th>Last Price</th><th>Volume</th></tr>
-    <tr><td>Dec26</td><td>291.15</td><td>19,113</td></tr>
-    <tr><td>Mar27</td><td>282.75</td><td>-</td></tr></table>
-  `)
+  const contracts = parseRenderedIceRows([
+    ['Dec26', '291.15', '14:02:00', '+0.10', '19,113'],
+    ['Mar27', '282.75', '14:02:00', '0.00', '-'],
+  ])
 
   assert.equal(contracts[0].volume, 19113)
   assert.equal(contracts[1].volume, 0)
@@ -39,7 +37,7 @@ test('calculates contango, backwardation, and flat curves', () => {
 
 test('rejects malformed ICE tables instead of returning fake data', () => {
   assert.throws(
-    () => parseIceCoffeeContracts('<table><tr><th>Contract</th><th>Last</th><th>Volume</th></tr></table>'),
-    /fewer than two valid contract rows/,
+    () => parseRenderedIceRows([['Not a contract', '291.15', '14:02:00', '0.00', '100']]),
+    /fewer than two valid Coffee C contracts/,
   )
 })
