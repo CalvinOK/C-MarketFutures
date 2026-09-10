@@ -446,13 +446,6 @@ export default function CoffeeFuturesSite() {
       "The latest Sucafina report points to a bearish tilt, with nearby support around 290 USc/lb and downside risk toward 275.",
   };
 
-  const staticStats = [
-    { label: "Front", value: "193.40", sub: "US¢/lb", featured: true },
-    { label: "Shape", value: "Contango", sub: "Deferred > spot" },
-    { label: "Vol", value: "73.6K", sub: "Shown" },
-    { label: "OI", value: "369.4K", sub: "Shown" },
-  ];
-
   const [history, setHistory] = useState<HistoryRow[]>([]);
   const [forecastPath, setForecastPath] = useState<WeeklyPathRow[]>([]);
   const [dataError, setDataError] = useState<string | null>(null);
@@ -467,6 +460,7 @@ export default function CoffeeFuturesSite() {
   const [liveNews, setLiveNews] = useState<NewsApiItem[] | null>(null);
   const [liveSucafinaBrief, setLiveSucafinaBrief] = useState<SucafinaBriefApiItem | null>(null);
   const [liveSnapshot, setLiveSnapshot] = useState<SnapshotData | null>(null);
+  const [snapshotError, setSnapshotError] = useState<string | null>(null);
   const [isGlossaryOpen, setIsGlossaryOpen] = useState(false);
 
   useEffect(() => {
@@ -553,9 +547,27 @@ export default function CoffeeFuturesSite() {
 
       if (snapshotRes.status === "fulfilled") {
         const data = snapshotRes.value;
-        if (data?.frontPrice) {
+        const isValidSnapshot =
+          Number.isFinite(Number(data?.frontPrice)) &&
+          Number(data.frontPrice) > 0 &&
+          (data.curveShape === "Contango" || data.curveShape === "Backwardation") &&
+          Number.isFinite(Number(data.totalVolume)) &&
+          Number.isFinite(Number(data.totalOpenInterest));
+
+        if (isValidSnapshot) {
           setLiveSnapshot(data);
+          setSnapshotError(null);
+        } else {
+          setLiveSnapshot(null);
+          setSnapshotError("Snapshot API returned incomplete live data.");
         }
+      } else {
+        setLiveSnapshot(null);
+        setSnapshotError(
+          snapshotRes.reason instanceof Error
+            ? snapshotRes.reason.message
+            : "Failed to load live market snapshot.",
+        );
       }
 
       if (briefRes.status === "fulfilled") {
@@ -684,7 +696,8 @@ export default function CoffeeFuturesSite() {
           featured: false,
         },
       ]
-    : staticStats;
+    : [];
+  const snapshotLoading = !liveSnapshot && !snapshotError;
 
   const visibleHistory = useMemo(() => {
     if (history.length === 0) {
@@ -1603,8 +1616,9 @@ export default function CoffeeFuturesSite() {
                 </button>
               </div>
 
-              <div className="mt-4 grid grid-cols-2 gap-3">
-                {displayStats.map((stat) => (
+              {liveSnapshot ? (
+                <div className="mt-4 grid grid-cols-2 gap-3">
+                  {displayStats.map((stat) => (
                   <div
                     key={stat.label}
                     className={`min-w-0 rounded-2xl border p-4 ${
@@ -1637,8 +1651,13 @@ export default function CoffeeFuturesSite() {
                       {stat.sub}
                     </div>
                   </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="mt-4 flex min-h-[8rem] items-center justify-center rounded-2xl border border-dashed border-[var(--line)] bg-white/50 px-4 text-center text-sm text-[var(--muted)]">
+                  {snapshotLoading ? "Loading snapshot data..." : snapshotError}
+                </div>
+              )}
             </div>
           </div>
         </section>
