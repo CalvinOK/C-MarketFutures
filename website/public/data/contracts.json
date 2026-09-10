@@ -7,12 +7,12 @@
     "price_change_pct": 0.007342,
     "volume": 0,
     "open_interest": 109,
-    "captured_at": "2026-05-11T23:26:24.626688+00:00",
-    "price_as_of": "2026-05-11",
+    "captured_at": "2026-05-12T00:00:06.528177+00:00",
+    "price_as_of": "2026-05-12",
     "source": "yahoo_finance",
     "dataset": null,
-    "oi_date": "2026-05-11",
-    "oi_published_at": "2026-05-11T23:26:26.925229+00:00",
+    "oi_date": "2026-05-12",
+    "oi_published_at": "2026-05-12T00:00:08.589126+00:00",
     "oi_source": "databento_statistics"
   },
   {
@@ -23,12 +23,12 @@
     "price_change_pct": 0.025894,
     "volume": 0,
     "open_interest": 81274,
-    "captured_at": "2026-05-11T23:26:24.626688+00:00",
-    "price_as_of": "2026-05-11",
+    "captured_at": "2026-05-12T00:00:06.528177+00:00",
+    "price_as_of": "2026-05-12",
     "source": "yahoo_finance",
     "dataset": null,
-    "oi_date": "2026-05-11",
-    "oi_published_at": "2026-05-11T23:26:26.925229+00:00",
+    "oi_date": "2026-05-12",
+    "oi_published_at": "2026-05-12T00:00:08.589126+00:00",
     "oi_source": "databento_statistics"
   },
   {
@@ -39,12 +39,12 @@
     "price_change_pct": 0.028351,
     "volume": 0,
     "open_interest": 44325,
-    "captured_at": "2026-05-11T23:26:24.626688+00:00",
-    "price_as_of": "2026-05-11",
+    "captured_at": "2026-05-12T00:00:06.528177+00:00",
+    "price_as_of": "2026-05-12",
     "source": "yahoo_finance",
     "dataset": null,
-    "oi_date": "2026-05-11",
-    "oi_published_at": "2026-05-11T23:26:26.925229+00:00",
+    "oi_date": "2026-05-12",
+    "oi_published_at": "2026-05-12T00:00:08.589126+00:00",
     "oi_source": "databento_statistics"
   },
   {
@@ -55,12 +55,12 @@
     "price_change_pct": 0.029684,
     "volume": 0,
     "open_interest": 30461,
-    "captured_at": "2026-05-11T23:26:24.626688+00:00",
-    "price_as_of": "2026-05-11",
+    "captured_at": "2026-05-12T00:00:06.528177+00:00",
+    "price_as_of": "2026-05-12",
     "source": "yahoo_finance",
     "dataset": null,
-    "oi_date": "2026-05-11",
-    "oi_published_at": "2026-05-11T23:26:26.925229+00:00",
+    "oi_date": "2026-05-12",
+    "oi_published_at": "2026-05-12T00:00:08.589126+00:00",
     "oi_source": "databento_statistics"
   }
 ]
