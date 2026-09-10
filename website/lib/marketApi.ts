@@ -1,7 +1,5 @@
 import { NextResponse } from 'next/server'
 
-type MarketApiFallback = (request: Request) => Promise<NextResponse | null>
-
 const DEFAULT_LOCAL_API_BASE = 'http://127.0.0.1:8000'
 
 function getConfiguredMarketApiBaseUrl(): string | null {
@@ -30,18 +28,10 @@ function getMarketApiAuthHeader(): string | null {
 export async function proxyMarketApiGet(
   request: Request,
   endpointPath: string,
-  fallback?: MarketApiFallback,
 ): Promise<NextResponse> {
   const marketApiBaseUrl = getConfiguredMarketApiBaseUrl()
 
-  // No upstream configured (typical on Vercel when MARKET_API_BASE_URL is
-  // missing). If the caller supplied a fallback, serve cached data instead of
-  // returning 500 — the page will render from public/data JSON.
   if (!marketApiBaseUrl) {
-    if (fallback) {
-      const fallbackResponse = await fallback(request)
-      if (fallbackResponse) return fallbackResponse
-    }
     return NextResponse.json(
       {
         error: 'Market API base URL is not configured',
@@ -73,13 +63,6 @@ export async function proxyMarketApiGet(
     const text = await upstream.text()
     const contentType = upstream.headers.get('content-type') || 'application/json; charset=utf-8'
 
-    if (fallback && (upstream.status === 404 || upstream.status >= 500)) {
-      const fallbackResponse = await fallback(request)
-      if (fallbackResponse) {
-        return fallbackResponse
-      }
-    }
-
     return new NextResponse(text, {
       status: upstream.status,
       headers: {
@@ -87,12 +70,6 @@ export async function proxyMarketApiGet(
       },
     })
   } catch (error: unknown) {
-    // Network-level failure (DNS, ECONNREFUSED, TLS, timeout). Same idea as the
-    // 5xx branch above: prefer cached data when the caller provides a fallback.
-    if (fallback) {
-      const fallbackResponse = await fallback(request)
-      if (fallbackResponse) return fallbackResponse
-    }
     return NextResponse.json(
       {
         error: 'Failed to reach market API server',

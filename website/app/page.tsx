@@ -160,48 +160,12 @@ async function fetchJsonFromApi<T>(apiPath: string): Promise<T> {
   );
 }
 
-function extractAsOfDateFromCsv(csvText: string): string | null {
-  const lines = csvText.split(/\r?\n/).filter((line) => line.trim());
-  if (lines.length < 2) return null;
-
-  const header = lines[0].split(",").map((value) => value.trim().toLowerCase());
-  const asOfIndex = header.indexOf("as_of_date");
-  if (asOfIndex < 0) return null;
-
-  const firstRow = lines[1].split(",").map((value) => value.trim());
-  return firstRow[asOfIndex] || null;
-}
-
-async function fetchProjectedSpotWithFallback(): Promise<ProjectedSpotApiResponse> {
+async function fetchProjectedSpot(): Promise<ProjectedSpotApiResponse> {
   const apiResponse = await fetch("/api/projected-spot", { cache: "no-store" });
   if (apiResponse.ok) {
     return apiResponse.json() as Promise<ProjectedSpotApiResponse>;
   }
-
-  const [historyResponse, forecastResponse] = await Promise.all([
-    fetch("/data/coffee_xgb_proj4_history.csv", { cache: "no-store" }),
-    fetch("/data/coffee_xgb_proj4_rolling_path.csv", { cache: "no-store" }),
-  ]);
-
-  if (!historyResponse.ok || !forecastResponse.ok) {
-    throw new Error(`Failed to load projected spot API (${apiResponse.status})`);
-  }
-
-  const [historyCsv, forecastCsv] = await Promise.all([
-    historyResponse.text(),
-    forecastResponse.text(),
-  ]);
-
-  return {
-    format: "projected-spot-csv.v1",
-    files: {
-      history: "coffee_xgb_proj4_history.csv",
-      forecast: "coffee_xgb_proj4_rolling_path.csv",
-    },
-    asOfDate: extractAsOfDateFromCsv(forecastCsv),
-    historyCsv,
-    forecastCsv,
-  };
+  throw new Error(`Failed to load projected spot API (${apiResponse.status})`);
 }
 
 type ChartPoint = {
@@ -549,7 +513,7 @@ export default function CoffeeFuturesSite() {
 
     async function loadChartData() {
       try {
-        const payload = await fetchProjectedSpotWithFallback();
+        const payload = await fetchProjectedSpot();
         const historyText = payload.historyCsv ?? "";
         const pathText = payload.forecastCsv ?? "";
 
