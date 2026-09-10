@@ -1,4 +1,6 @@
 import { chromium } from 'playwright'
+import fs from 'node:fs'
+import path from 'node:path'
 import {
   calculateCurveShape,
   calculateTotalVolume,
@@ -12,6 +14,18 @@ import { upsertCoffeeMarketSnapshot } from '@/lib/supabaseServer'
 const ICE_URL = 'https://www.ice.com/products/15/Coffee-C/data?marketId=5460931'
 const CFTC_URL = 'https://publicreporting.cftc.gov/resource/6dca-aqww.json'
 const CFTC_MARKET_CODE = '083731'
+
+function loadLocalEnvironment(): void {
+  const envPath = path.resolve(process.cwd(), '.env.local')
+  if (!fs.existsSync(envPath)) return
+  for (const line of fs.readFileSync(envPath, 'utf8').split(/\r?\n/)) {
+    const match = line.match(/^\s*([A-Z][A-Z0-9_]*)\s*=\s*(.*)\s*$/)
+    if (!match || process.env[match[1]]) continue
+    process.env[match[1]] = match[2].replace(/^['"]|['"]$/g, '')
+  }
+}
+
+loadLocalEnvironment()
 
 type CftcRow = {
   cftc_contract_market_code?: string

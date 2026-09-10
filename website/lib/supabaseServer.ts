@@ -19,9 +19,9 @@ type StoredCoffeeMarketSnapshotRow = {
 }
 
 function getSupabaseConfig(): { url: string; key: string } {
-  const url = (process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL)?.replace(/\/$/, '')
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY
-  if (!url || !key) throw new Error('Supabase URL and a server-only Supabase service/secret key are required')
+  const url = process.env.SUPABASE_URL?.replace(/\/$/, '')
+  const key = process.env.SUPABASE_SECRET_KEY
+  if (!url || !key) throw new Error('SUPABASE_URL and SUPABASE_SECRET_KEY are required')
   return { url, key }
 }
 
