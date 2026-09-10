@@ -418,45 +418,6 @@ export default function CoffeeFuturesSite() {
     },
   ];
 
-  const staticContracts = [
-    {
-      month: "May 2026",
-      symbol: "KCK26",
-      price: "193.40",
-      change: "+2.15",
-      pct: "+1.12%",
-      volume: "28.4K",
-      openInterest: "112.9K",
-    },
-    {
-      month: "Jul 2026",
-      symbol: "KCN26",
-      price: "196.10",
-      change: "+1.80",
-      pct: "+0.93%",
-      volume: "19.2K",
-      openInterest: "97.6K",
-    },
-    {
-      month: "Sep 2026",
-      symbol: "KCU26",
-      price: "198.75",
-      change: "+1.55",
-      pct: "+0.79%",
-      volume: "14.9K",
-      openInterest: "85.1K",
-    },
-    {
-      month: "Dec 2026",
-      symbol: "KCZ26",
-      price: "201.90",
-      change: "+1.25",
-      pct: "+0.62%",
-      volume: "11.1K",
-      openInterest: "73.9K",
-    },
-  ];
-
   const staticHeadlines = [
     {
       title: "Brazil weather risk supports nearby strength",
@@ -615,7 +576,17 @@ export default function CoffeeFuturesSite() {
     };
   }, []);
 
-  // Derive display data: live when available, static otherwise
+  const unavailableContracts = Array.from({ length: 4 }, () => ({
+    month: "N/A",
+    symbol: "N/A",
+    price: "N/A",
+    change: "N/A",
+    pct: "N/A",
+    volume: "N/A",
+    openInterest: "N/A",
+  }));
+
+  // Derive display data from the API, or show placeholders after a failed request.
   const displayContracts = liveContracts
     ? liveContracts.map((c) => ({
         month: symbolToMonth(c.symbol),
@@ -632,17 +603,10 @@ export default function CoffeeFuturesSite() {
         openInterest: formatK(Number(c.open_interest)),
       }))
     : contractsUnavailable
-      ? staticContracts.map((contract) => ({
-          ...contract,
-          month: "N/A",
-          symbol: "N/A",
-          price: "N/A",
-          change: "N/A",
-          pct: "N/A",
-          volume: "N/A",
-          openInterest: "N/A",
-        }))
-      : staticContracts;
+      ? unavailableContracts
+      : [];
+
+  const contractsLoading = !liveContracts && !contractsUnavailable;
 
   const contractsPerPage = 4;
   const totalContractPages = Math.ceil(displayContracts.length / contractsPerPage);
@@ -1485,13 +1449,18 @@ export default function CoffeeFuturesSite() {
                     onClick={handleDownloadLiveContracts}
                     className={`rounded-full border px-3 py-1 text-xs font-medium transition hover:border-[var(--bond-blue)]/35 hover:bg-[var(--baby-blue)]/22 ${isLiveData ? "border-green-200 bg-green-50 text-green-700" : contractsUnavailable ? "border-[var(--line)] bg-white text-[var(--muted)]" : "border-[var(--line-strong)] bg-[var(--prasad-purple)]/18 text-[var(--bond-blue)]"}`}
                   >
-                    {isLiveData ? "Live" : contractsUnavailable ? "N/A" : "Delayed demo"}
+                    {isLiveData ? "Live" : contractsUnavailable ? "N/A" : "Loading..."}
                   </button>
                 </div>
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                {pagedContracts.map((contract, index) => (
+              {contractsLoading ? (
+                <div className="py-8 text-center text-sm text-[var(--muted)]">
+                  Loading contracts...
+                </div>
+              ) : (
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  {pagedContracts.map((contract, index) => (
                   <article
                     key={contractsUnavailable ? `na-${contractPage * contractsPerPage + index}` : contract.symbol}
                     className={`flex h-full flex-col rounded-2xl border p-3.5 ${
@@ -1610,8 +1579,9 @@ export default function CoffeeFuturesSite() {
                       </div>
                     </div>
                   </article>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="rounded-3xl border border-[var(--line)] bg-[linear-gradient(180deg,rgba(123,159,188,0.18),rgba(197,174,203,0.14))] p-4">
