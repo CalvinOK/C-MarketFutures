@@ -7,10 +7,12 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "test": "tsx --test tests/**/*.test.ts",
     "worker": "tsx --tsconfig tsconfig.json scripts/cron.ts",
     "db:migrate": "psql $DATABASE_URL -f migrations/001_initial.sql"
   },
   "dependencies": {
+    "cheerio": "^1.2.0",
     "ioredis": "^5.4.0",
     "next": "15.5.15",
     "node-cron": "^3.0.3",
