@@ -29,6 +29,14 @@ _CACHE_SECONDS = 600
 ROLL_DAYS_BEFORE_EXPIRY = 10
 
 
+class DatabentoProviderError(RuntimeError):
+    def __init__(self, reason: str, *, status: int | None = None, missing_fields: list[str] | None = None):
+        super().__init__(reason)
+        self.reason = reason
+        self.status = status
+        self.missing_fields = missing_fields or []
+
+
 def _licensed_end() -> datetime:
     # IFUS historical access is delayed; stay before the normal cutoff.
     current = datetime.now(timezone.utc)
@@ -38,16 +46,34 @@ def _licensed_end() -> datetime:
 def _headers() -> dict[str, str]:
     key = os.getenv("DATABENTO_API_KEY", "").strip()
     if not key:
-        raise RuntimeError("DATABENTO_API_KEY is not configured")
+        raise DatabentoProviderError("configuration_error")
     token = base64.b64encode(f"{key}:".encode()).decode()
     return {"Authorization": f"Basic {token}"}
 
 
 def _request_jsonl(data: dict[str, str]) -> list[dict[str, Any]]:
-    response = requests.post(DATABENTO_URL, headers=_headers(), data=data, timeout=30)
+    try:
+        response = requests.post(DATABENTO_URL, headers=_headers(), data=data, timeout=30)
+    except requests.Timeout as exc:
+        raise DatabentoProviderError("timeout") from exc
+    except requests.RequestException as exc:
+        raise DatabentoProviderError("network_error") from exc
     if not response.ok:
-        raise RuntimeError(f"Databento HTTP {response.status_code}: {response.text[:240]}")
-    return [json.loads(line) for line in response.text.splitlines() if line.strip()]
+        if response.status_code == 402:
+            reason = "insufficient_budget"
+        elif response.status_code in (401, 403):
+            reason = "authentication_failure" if response.status_code == 401 else "entitlement_failure"
+        elif response.status_code == 404:
+            reason = "endpoint_not_found"
+        elif response.status_code == 422:
+            reason = "invalid_request_or_unavailable_range"
+        else:
+            reason = "databento_http_error"
+        raise DatabentoProviderError(reason, status=response.status_code)
+    try:
+        return [json.loads(line) for line in response.text.splitlines() if line.strip()]
+    except (TypeError, ValueError) as exc:
+        raise DatabentoProviderError("malformed_provider_response") from exc
 
 
 def _nested(record: dict[str, Any], key: str) -> Any:
@@ -195,7 +221,7 @@ def _select_forward_contract(definitions: list[dict[str, Any]], current_symbol: 
                 return later[0]
     suitable = [row for row in definitions if _business_days_until(date.today(), date.fromisoformat(row["expirationDate"])) > ROLL_DAYS_BEFORE_EXPIRY]
     if not suitable:
-        raise RuntimeError("No Coffee C contract remains outside the forced-roll window")
+        raise DatabentoProviderError("no_contract_found")
     return suitable[0]
 
 
@@ -208,8 +234,13 @@ def fetch_latest_daily_observation(current_symbol: str | None = None) -> dict[st
     open_price = _positive_price(values.get("open"))
     high = _positive_price(values.get("high"))
     low = _positive_price(values.get("low"))
-    if any(value is None for value in (price, open_price, high, low)):
-        raise RuntimeError(f"Databento returned incomplete OHLC statistics for {selected['symbol']}")
+    required_values = {"price": price, "open": open_price, "high": high, "low": low}
+    missing = [name for name, value in required_values.items() if value is None]
+    if missing:
+        raw_values = {name: values.get("settlement" if name == "price" else name) for name in missing}
+        if all(value in (None, "", "0", 0, "0.0") for value in raw_values.values()):
+            raise DatabentoProviderError("invalid_ohlc", missing_fields=missing)
+        raise DatabentoProviderError("missing_ohlc", missing_fields=missing)
     return {
         "date": values.get("statDate"),
         "price": price,

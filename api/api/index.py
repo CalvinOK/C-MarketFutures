@@ -227,8 +227,25 @@ def latest_coffee_history_csv():
         response.headers["X-Coffee-Source-Retrieved-At"] = observation["sourceRetrievedAt"]
         return response
     except Exception as exc:
-        print(f"[coffee-history-latest] Databento failure: {type(exc).__name__}: {exc}")
-        return jsonify({"error": "Unable to fetch latest Coffee C daily data", "code": "provider_data_error"}), 502
+        from databento_contracts import DatabentoProviderError
+
+        if isinstance(exc, DatabentoProviderError):
+            detail: dict[str, object] = {
+                "code": "provider_data_error",
+                "reason": exc.reason,
+            }
+            if exc.status is not None:
+                detail["upstreamStatus"] = exc.status
+            if exc.missing_fields:
+                detail["missingFields"] = exc.missing_fields
+            print(
+                f"[coffee-history-latest] provider failure reason={exc.reason} "
+                f"status={exc.status} missing_fields={exc.missing_fields}"
+            )
+            return jsonify(detail), 502
+
+        print(f"[coffee-history-latest] unexpected provider failure type={type(exc).__name__}")
+        return jsonify({"code": "provider_data_error", "reason": "unexpected_provider_error"}), 502
 
 
 @app.route("/api/coffee/forecast", methods=["GET"])
