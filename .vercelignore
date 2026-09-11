@@ -1,0 +1,11 @@
+**/.venv/
+**/.vercel/
+**/__pycache__/
+*.py[cod]
+api/tests/
+api/**/tests/
+api/outputs/
+api/logdata/
+outside data/
+good.csv
+*.ipynb
