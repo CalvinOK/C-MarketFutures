@@ -48,6 +48,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import databento as db
+import requests
 
 
 # ---------------------------------------------------------------------------
@@ -277,7 +278,25 @@ def fetch_databento_history(
     if "volume" in df.columns:
         df["volume"] = pd.to_numeric(df["volume"], errors="coerce").fillna(0).astype(int)
 
+    validate_ohlcv_rows(df, name)
+
     return df[["Date", "open", "high", "low", "close", "volume"]]
+
+
+def validate_ohlcv_rows(df: pd.DataFrame, name: str = "coffee") -> None:
+    required_ohlc = ["open", "high", "low", "close"]
+    missing = [column for column in required_ohlc if column not in df.columns]
+    if missing:
+        raise ValueError(f"[{name}] provider response is missing OHLC columns: {missing}")
+    numeric = df[required_ohlc].apply(pd.to_numeric, errors="coerce")
+    invalid = ~np.isfinite(numeric.to_numpy(dtype=float)).all(axis=1)
+    invalid |= (numeric <= 0).any(axis=1).to_numpy()
+    if invalid.any():
+        dates = df.loc[invalid, "Date"].astype(str).tolist()[:10] if "Date" in df.columns else []
+        raise ValueError(
+            f"[{name}] provider returned {int(invalid.sum())} invalid OHLC row(s); "
+            f"dates={dates}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -461,6 +480,68 @@ def fetch_yahoo_history(start: date, end: date) -> pd.DataFrame:
     return hist
 
 
+def fetch_supabase_coffee_history() -> pd.DataFrame:
+    """Load the existing Coffee C OHLC history when provider refresh is unavailable."""
+    supabase_url = os.environ.get("SUPABASE_URL", "").strip().rstrip("/")
+    supabase_key = os.environ.get("SUPABASE_SECRET_KEY", "").strip()
+    if not supabase_url or not supabase_key:
+        raise EnvironmentError("SUPABASE_URL and SUPABASE_SECRET_KEY are required")
+
+    rows: list[dict[str, Any]] = []
+    offset = 0
+    endpoint = f'{supabase_url}/rest/v1/Coffee%20C%20Historical%20Data'
+    request_headers = {
+        "apikey": supabase_key,
+        "Authorization": f"Bearer {supabase_key}",
+    }
+    while True:
+        response = requests.get(
+            endpoint,
+            headers=request_headers,
+            params={
+                "select": '"Date","Price","Open","High","Low","Vol."',
+                "limit": 1000,
+                "offset": offset,
+            },
+            timeout=20,
+        )
+        response.raise_for_status()
+        page = response.json()
+        if not isinstance(page, list):
+            raise ValueError("Supabase Coffee C history response was not an array")
+        rows.extend(page)
+        if len(page) < 1000:
+            break
+        offset += 1000
+
+    if not rows:
+        raise ValueError("Supabase Coffee C history is empty")
+
+    out = pd.DataFrame(rows)
+    out["Date"] = pd.to_datetime(out["Date"], format="mixed", errors="coerce")
+    for column in ["Price", "Open", "High", "Low"]:
+        out[column] = pd.to_numeric(out[column], errors="coerce")
+
+    def parse_volume(value: Any) -> int:
+        text = str(value or "").strip().replace(",", "")
+        multiplier = 1
+        if text.upper().endswith("K"):
+            multiplier, text = 1_000, text[:-1]
+        elif text.upper().endswith("M"):
+            multiplier, text = 1_000_000, text[:-1]
+        try:
+            return int(round(float(text) * multiplier))
+        except (TypeError, ValueError):
+            return 0
+
+    out["volume"] = out["Vol."].map(parse_volume)
+    out = out.rename(columns={"Price": "close", "Open": "open", "High": "high", "Low": "low"})
+    out = out.dropna(subset=["Date", "open", "high", "low", "close"])
+    out = out[(out[["open", "high", "low", "close"]] > 0).all(axis=1)]
+    out["Date"] = out["Date"].dt.date
+    return out[["Date", "open", "high", "low", "close", "volume"]].sort_values("Date").drop_duplicates("Date")
+
+
 # ---------------------------------------------------------------------------
 # Main orchestration
 # ---------------------------------------------------------------------------
@@ -474,7 +555,12 @@ def run(
     if instruments is None:
         instruments = INSTRUMENTS
 
-    client = db.Historical(_api_key()) if not dry_run else None
+    client = None
+    if not dry_run:
+        try:
+            client = db.Historical(_api_key())
+        except EnvironmentError as exc:
+            print(f"[fetch_logdata] Databento unavailable; Supabase fallback enabled: {exc}")
 
     results: list[FetchResult] = []
 
@@ -529,6 +615,15 @@ def run(
                 )
                 print(f"  [{inst.name}] {databento_error}")
                 raw_df = None
+
+        if raw_df is None:
+            if inst.output_key == "coffee":
+                print(f"  [{inst.name}] Trying Supabase historical-table fallback...")
+                try:
+                    raw_df = fetch_supabase_coffee_history()
+                    print(f"  [{inst.name}] Supabase fallback returned {len(raw_df)} rows.")
+                except Exception as supabase_exc:
+                    print(f"  [{inst.name}] Supabase fallback failed: {supabase_exc}")
 
         if raw_df is None:
             # Yahoo Finance fallback for Coffee C continuous (KC=F)

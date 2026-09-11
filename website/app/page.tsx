@@ -9,14 +9,26 @@ type HistoryRow = {
   price: number;
 };
 
-type WeeklyPathRow = {
-  asOfDate: string;
-  stepWeek: number;
+type ForecastRow = {
   date: string;
-  predictedWeeklyLogReturn: number;
+  horizon: number;
+  price: number;
+};
+
+type ForecastApiResponse = {
+  format: "coffee-daily-forecast.v1";
+  asOf: string;
+  currentPrice: number;
+  unit: string;
+  forecast: ForecastRow[];
+  validation?: Array<Record<string, number | boolean>>;
+};
+
+type ChartForecastRow = {
+  asOfDate: string;
+  step: number;
+  date: string;
   projectedPrice: number;
-  anchorWeeklyLogReturn: number;
-  raw1wLogReturn: number;
 };
 
 type ForecastBandRow = {
@@ -47,15 +59,9 @@ type NewsApiItem = {
   timestamp: string;
 };
 
-type ProjectedSpotApiResponse = {
-  format: "projected-spot-csv.v1";
-  files: {
-    history: string;
-    forecast: string;
-  };
-  asOfDate: string | null;
-  historyCsv: string;
-  forecastCsv: string;
+type CoffeeHistoryApiResponse = {
+  format: "coffee-market-history.v1";
+  data: HistoryRow[];
 };
 
 type SucafinaBriefApiItem = {
@@ -166,12 +172,12 @@ async function fetchJsonFromApi<T>(apiPath: string): Promise<T> {
   );
 }
 
-async function fetchProjectedSpot(): Promise<ProjectedSpotApiResponse> {
-  const apiResponse = await fetch("/api/projected-spot", { cache: "no-store" });
-  if (apiResponse.ok) {
-    return apiResponse.json() as Promise<ProjectedSpotApiResponse>;
-  }
-  throw new Error(`Failed to load projected spot API (${apiResponse.status})`);
+async function fetchCoffeeHistory(): Promise<CoffeeHistoryApiResponse> {
+  return fetchJsonFromApi<CoffeeHistoryApiResponse>("/api/coffee/history?limit=5000");
+}
+
+async function fetchCoffeeForecast(): Promise<ForecastApiResponse> {
+  return fetchJsonFromApi<ForecastApiResponse>("/api/coffee/forecast");
 }
 
 type ChartPoint = {
@@ -194,148 +200,9 @@ type YAxisTick = {
   label: string;
 };
 
-function parseHistoryCsv(csvText: string): HistoryRow[] {
-  const lines = csvText.trim().split(/\r?\n/);
-  const rows = lines.slice(1);
-
-  return rows
-    .map((line) => line.split(","))
-    .filter((parts) => parts.length >= 2)
-    .map((parts) => ({
-      date: parts[0],
-      price: Number(parts[1]),
-    }))
-    .filter((row) => Number.isFinite(row.price));
-}
-
-function parseWeeklyPathCsv(csvText: string): WeeklyPathRow[] {
-  const lines = csvText.trim().split(/\r?\n/);
-  if (lines.length < 2) {
-    return [];
-  }
-
-  const header = lines[0].split(",").map((value) => value.trim().toLowerCase());
-  const byName = (name: string) => header.indexOf(name.toLowerCase());
-  const dateIdx = Math.max(byName("date"), byName("Date"));
-  const asOfIdx = Math.max(byName("as_of_date"), byName("asofdate"));
-  const stepIdx = Math.max(byName("step_week"), byName("step"));
-  const projectedIdx = Math.max(byName("projected_price"), byName("forecast"));
-  const predictedIdx = byName("predicted_weekly_log_return");
-  const anchorIdx = byName("anchor_weekly_log_return");
-  const rawIdx = byName("raw_1w_log_return");
-
-  const rows = lines.slice(1);
-  const parsed = rows
-    .map((line) => line.split(","))
-    .filter((parts) => parts.length >= 2)
-    .map((parts) => {
-      const date = dateIdx >= 0 ? parts[dateIdx] : parts[2] ?? parts[0];
-      const stepWeek =
-        stepIdx >= 0 ? Number(parts[stepIdx]) : Number(parts[1] ?? parts[4]);
-      const projectedPrice =
-        projectedIdx >= 0 ? Number(parts[projectedIdx]) : Number(parts[4]);
-
-      return {
-        asOfDate:
-          asOfIdx >= 0
-            ? parts[asOfIdx]
-            : date,
-        stepWeek,
-        date,
-        projectedPrice,
-        predictedWeeklyLogReturn:
-          predictedIdx >= 0 ? Number(parts[predictedIdx]) : Number.NaN,
-        anchorWeeklyLogReturn:
-          anchorIdx >= 0 ? Number(parts[anchorIdx]) : 0,
-        raw1wLogReturn:
-          rawIdx >= 0 ? Number(parts[rawIdx]) : 0,
-      };
-    })
-    .filter(
-      (row) =>
-        Number.isFinite(row.stepWeek) &&
-        Number.isFinite(row.projectedPrice) &&
-        row.date,
-    );
-
-  if (parsed.length === 0) {
-    return [];
-  }
-
-  for (let index = 0; index < parsed.length; index += 1) {
-    if (!Number.isFinite(parsed[index].predictedWeeklyLogReturn)) {
-      if (index === 0) {
-        parsed[index].predictedWeeklyLogReturn = 0;
-      } else {
-        const previous = parsed[index - 1].projectedPrice;
-        const current = parsed[index].projectedPrice;
-        parsed[index].predictedWeeklyLogReturn =
-          previous > 0 && current > 0 ? Math.log(current / previous) : 0;
-      }
-    }
-  }
-
-  const inferredAsOfDate = parsed[0].asOfDate || parsed[0].date;
-  return parsed.map((row) => ({
-    ...row,
-    asOfDate: row.asOfDate || inferredAsOfDate,
-  }));
-}
-
 function parseLocalDate(dateStr: string): Date {
   const [year, month, day] = dateStr.split("-").map(Number);
   return new Date(year, month - 1, day);
-}
-
-function formatIsoDate(date: Date): string {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-}
-
-// Re-anchor the projection so step 1 = today + 7d, step 2 = today + 14d, …
-// and the whole price curve is rescaled to the live front price. This keeps
-// the chart aligned with "today" even when the CSV is a few days/weeks stale,
-// while preserving the exact shape the ML pipeline produced (including the
-// terminal alignment baked into projected_price).
-function reanchorForecastPath(
-  forecast: WeeklyPathRow[],
-  today: Date,
-  currentPrice: number,
-): WeeklyPathRow[] {
-  if (forecast.length === 0) return forecast;
-  if (!Number.isFinite(currentPrice) || currentPrice <= 0) return forecast;
-
-  const anchor = new Date(today);
-  anchor.setHours(0, 0, 0, 0);
-  const todayIso = formatIsoDate(anchor);
-  const msPerDay = 24 * 60 * 60 * 1000;
-
-  // Recover the price the model was anchored to via the first row's
-  // pre-alignment log-return (projected_price / exp(return) = price one step
-  // before step 1). When currentPrice matches that anchor, scale ≈ 1 and the
-  // chart shows the exact model output.
-  const firstReturn = Number.isFinite(forecast[0].predictedWeeklyLogReturn)
-    ? forecast[0].predictedWeeklyLogReturn
-    : 0;
-  const impliedAnchor = forecast[0].projectedPrice / Math.exp(firstReturn);
-  const scale =
-    Number.isFinite(impliedAnchor) && impliedAnchor > 0
-      ? currentPrice / impliedAnchor
-      : 1;
-
-  return forecast.map((row, idx) => {
-    const stepWeek = idx + 1;
-    const stepDate = new Date(anchor.getTime() + stepWeek * 7 * msPerDay);
-    return {
-      ...row,
-      asOfDate: todayIso,
-      stepWeek,
-      date: formatIsoDate(stepDate),
-      projectedPrice: row.projectedPrice * scale,
-    };
-  });
 }
 
 function stddev(values: number[]): number {
@@ -453,7 +320,7 @@ export default function CoffeeFuturesSite() {
   };
 
   const [history, setHistory] = useState<HistoryRow[]>([]);
-  const [forecastPath, setForecastPath] = useState<WeeklyPathRow[]>([]);
+  const [forecastPath, setForecastPath] = useState<ChartForecastRow[]>([]);
   const [dataError, setDataError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
@@ -474,32 +341,42 @@ export default function CoffeeFuturesSite() {
 
     async function loadChartData() {
       try {
-        const payload = await fetchProjectedSpot();
-        const historyText = payload.historyCsv ?? "";
-        const pathText = payload.forecastCsv ?? "";
-
-        const historyRows = parseHistoryCsv(historyText);
-        const forecastRows = parseWeeklyPathCsv(pathText);
+        const [historyResult, forecastResult] = await Promise.allSettled([
+          fetchCoffeeHistory(),
+          fetchCoffeeForecast(),
+        ]);
+        const historyRows =
+          historyResult.status === "fulfilled" ? historyResult.value.data : [];
+        const forecastRows =
+          forecastResult.status === "fulfilled"
+            ? forecastResult.value.forecast.map((row) => ({
+                asOfDate: forecastResult.value.asOf,
+                step: row.horizon,
+                date: row.date,
+                projectedPrice: row.price,
+              }))
+            : [];
 
         if (!cancelled) {
           setHistory(historyRows);
           setForecastPath(forecastRows);
           setDataError(
-            historyRows.length > 0 && forecastRows.length > 0
-              ? null
-              : "Projected spot API returned empty CSV data.",
+            historyRows.length === 0
+              ? "Coffee history API returned no price data."
+              : forecastRows.length === 0
+                ? "Daily forecast API returned no projection data."
+                : null,
           );
         }
       } catch (error) {
         if (!cancelled) {
-          const statusMatch =
-            error instanceof Error
-              ? error.message.match(/^Failed to load projected spot API \((\d+)\)$/)
-              : null;
+          const statusMatch = error instanceof Error
+            ? error.message.match(/Failed to load \/api\/coffee\/forecast \((\d+)\)/)
+            : null;
           setDataError(
             statusMatch
-              ? `Failed to load projected spot API (${statusMatch[1]})`
-              : "Failed to load projected spot data.",
+              ? `Failed to load daily forecast (${statusMatch[1]})`
+              : "Failed to load daily forecast data.",
           );
         }
       } finally {
@@ -719,37 +596,10 @@ export default function CoffeeFuturesSite() {
     if (history.length === 0) {
       return [] as HistoryRow[];
     }
-
-    const latestHistoryDate = parseLocalDate(history[history.length - 1].date);
-    const cutoffDate = new Date(latestHistoryDate);
-    cutoffDate.setFullYear(cutoffDate.getFullYear() - 1);
-
-    const filteredHistory = history.filter((row) => parseLocalDate(row.date) >= cutoffDate);
-    return filteredHistory.length > 0 ? filteredHistory : history;
+    return history;
   }, [history]);
 
-  // The CSV stores projections relative to whatever date the ML pipeline last
-  // ran on. Re-anchor it here so the chart always shows weekly steps starting
-  // from today, priced from the live front price. This keeps the chart honest
-  // even if the cron hasn't refreshed the CSV yet.
-  const displayForecastPath = useMemo(() => {
-    if (forecastPath.length === 0) return forecastPath;
-
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    const currentPrice =
-      liveSnapshot?.front ??
-      (visibleHistory.length > 0
-        ? visibleHistory[visibleHistory.length - 1].price
-        : undefined);
-
-    if (!Number.isFinite(currentPrice) || !currentPrice || currentPrice <= 0) {
-      return forecastPath;
-    }
-
-    return reanchorForecastPath(forecastPath, today, currentPrice);
-  }, [forecastPath, liveSnapshot, visibleHistory]);
+  const displayForecastPath = forecastPath;
 
   const chart = useMemo(() => {
     const width = 920;
@@ -764,12 +614,10 @@ export default function CoffeeFuturesSite() {
       return null;
     }
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
     const historyDates = visibleHistory.map((row) => parseLocalDate(row.date));
+    const asOfDate = historyDates[historyDates.length - 1];
     const forecastDates = displayForecastPath.map((row) => parseLocalDate(row.date));
-    const allDates = [...historyDates, today, ...forecastDates];
+    const allDates = [...historyDates, ...forecastDates];
 
     const monthKeys = Array.from(
       new Set(
@@ -780,21 +628,16 @@ export default function CoffeeFuturesSite() {
       monthKeys.map((key, index) => [key, index] as const),
     );
 
-    const msPerWeek = 7 * 24 * 60 * 60 * 1000;
-    const asOfDate = today;
-    const currentPrice = liveSnapshot?.front ?? visibleHistory[visibleHistory.length - 1].price;
-    const sigmaWeekly = stddev(
-      displayForecastPath.map((row) => row.predictedWeeklyLogReturn),
-    );
+    const currentPrice = visibleHistory[visibleHistory.length - 1].price;
+    const sigmaDaily = stddev(displayForecastPath.map((row, index) =>
+      index === 0 ? Math.log(row.projectedPrice / currentPrice) : Math.log(row.projectedPrice / displayForecastPath[index - 1].projectedPrice),
+    ));
 
     const forecastBands: ForecastBandRow[] = displayForecastPath.map((row) => {
       const forecastDate = parseLocalDate(row.date);
-      const weeksElapsed = Math.max(
-        (forecastDate.getTime() - asOfDate.getTime()) / msPerWeek,
-        0,
-      );
+      const daysElapsed = Math.max((forecastDate.getTime() - asOfDate.getTime()) / (24 * 60 * 60 * 1000), 0);
       const coneHalf =
-        currentPrice * (Math.exp(sigmaWeekly * Math.sqrt(weeksElapsed)) - 1);
+        currentPrice * (Math.exp(sigmaDaily * Math.sqrt(daysElapsed)) - 1);
 
       return {
         date: forecastDate,
@@ -850,10 +693,10 @@ export default function CoffeeFuturesSite() {
     });
 
     const todayAnchor: ChartPoint = {
-      date: today,
-      x: toMonthX(today),
+      date: asOfDate,
+      x: toMonthX(asOfDate),
       y: toY(currentPrice),
-      label: today.toLocaleDateString("en-US", { month: "short" }),
+      label: asOfDate.toLocaleDateString("en-US", { month: "short" }),
       projectedPrice: currentPrice,
     };
 
@@ -873,7 +716,7 @@ export default function CoffeeFuturesSite() {
     ];
 
     const allForecastBands: ForecastBandRow[] = [
-      { date: today, projectedPrice: currentPrice, upper: currentPrice, lower: currentPrice },
+      { date: asOfDate, projectedPrice: currentPrice, upper: currentPrice, lower: currentPrice },
       ...forecastBands,
     ];
 
@@ -959,12 +802,12 @@ export default function CoffeeFuturesSite() {
       forecastMeanPrice,
       monthTicks: filteredTicks,
       yAxisTicks,
-      dividerX: toMonthX(today),
+      dividerX: toMonthX(asOfDate),
       plotBottom: height - bottom,
       plotRight: width - right,
       toMonthX,
     };
-  }, [visibleHistory, displayForecastPath, liveSnapshot]);
+  }, [visibleHistory, displayForecastPath]);
 
   const hoveredPoint = chart
     ? hoveredHistoryIndex !== null
@@ -980,14 +823,14 @@ export default function CoffeeFuturesSite() {
     }
 
     const lines = [
-      "series,date,price,asOfDate,stepWeek,predictedWeeklyLogReturn,anchorWeeklyLogReturn,raw1wLogReturn",
+      "series,date,price,asOfDate,horizon",
       ...visibleHistory.map(
         (row) =>
-          `history,${row.date},${row.price.toFixed(6)},,,,,`,
+          `history,${row.date},${row.price.toFixed(6)},,`,
       ),
       ...displayForecastPath.map(
         (row) =>
-          `forecast,${row.date},${row.projectedPrice.toFixed(6)},${row.asOfDate},${row.stepWeek},${row.predictedWeeklyLogReturn.toFixed(8)},${row.anchorWeeklyLogReturn.toFixed(8)},${row.raw1wLogReturn.toFixed(8)}`,
+          `forecast,${row.date},${row.projectedPrice.toFixed(6)},${row.asOfDate},${row.step}`,
       ),
     ];
 
@@ -1352,11 +1195,11 @@ export default function CoffeeFuturesSite() {
                   </span>
                   <span className="inline-flex items-center gap-1.5">
                     <span className="h-2.5 w-2.5 rounded-full bg-[var(--gameday-blue)]" />
-                    Recursive weekly forecast path
+                    31-day direct forecast
                   </span>
                   <span className="inline-flex items-center gap-1.5">
                     <span className="inline-block h-[2px] w-5 rounded-full bg-[#059669]" style={{ borderTop: "2px dashed #059669" }} />
-                    Future projection ({chart?.futureProjectionValue.toFixed(2)})
+                    Day 31 projection ({chart?.futureProjectionValue.toFixed(2)})
                   </span>
                   <span className="inline-flex items-center gap-1.5">
                     <span className="inline-block h-[2px] w-5" style={{ borderTop: "1px dashed rgba(32, 44, 102, 0.5)" }} />

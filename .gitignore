@@ -11,6 +11,7 @@
 !**/.env.example
 
 /outside data/
+/good.csv
 
 # Python cache and local env
 __pycache__/
@@ -40,3 +41,6 @@ api/try2/
 # Generated API data outputs
 api/data/
 api/logdata/
+
+# Local one-time history import files
+/website/import-data/*.csv

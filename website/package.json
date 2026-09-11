@@ -8,8 +8,10 @@
     "start": "next start",
     "lint": "next lint",
     "test": "tsx --test tests/**/*.test.ts",
+    "import:coffee-history": "tsx --tsconfig tsconfig.json scripts/importCoffeeHistory.ts",
     "worker": "tsx --tsconfig tsconfig.json scripts/cron.ts",
-    "db:migrate": "psql $DATABASE_URL -f migrations/001_initial.sql"
+    "db:migrate": "psql $DATABASE_URL -f migrations/001_initial.sql",
+    "db:migrate:coffee-history": "psql $DATABASE_URL -f migrations/003_coffee_history_key.sql"
   },
   "dependencies": {
     "cheerio": "^1.2.0",

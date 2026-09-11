@@ -18,6 +18,22 @@ type StoredCoffeeMarketSnapshotRow = {
   created_at: string
 }
 
+export type CoffeeMarketHistoryPoint = {
+  date: string
+  price: number
+}
+
+export type CoffeeMarketHistoryRow = CoffeeMarketHistoryPoint & {
+  open: number
+  high: number
+  low: number
+  volume: string
+  changePercent: string
+}
+
+const HISTORICAL_TABLE = 'Coffee C Historical Data'
+const SUPABASE_PAGE_SIZE = 1000
+
 function getSupabaseConfig(): { url: string; key: string } {
   const url = process.env.SUPABASE_URL?.replace(/\/$/, '')
   const key = process.env.SUPABASE_SECRET_KEY
@@ -59,6 +75,104 @@ export async function getLatestCoffeeMarketSnapshot(): Promise<CoffeeMarketSnaps
     unit: row.unit,
     retrievedAt: row.retrieved_at,
   }
+}
+
+export async function getCoffeeMarketHistory(options?: {
+  from?: string
+  to?: string
+  limit?: number
+}): Promise<CoffeeMarketHistoryPoint[]> {
+  const { url } = getSupabaseConfig()
+  const rows: CoffeeMarketHistoryRow[] = []
+  const requestedLimit = Math.min(Math.max(options?.limit ?? 5000, 1), 5000)
+  const fetchLimit = 5000
+
+  for (let offset = 0; offset < fetchLimit; offset += SUPABASE_PAGE_SIZE) {
+    const params = new URLSearchParams({
+      select: '*',
+      limit: String(Math.min(SUPABASE_PAGE_SIZE, fetchLimit - offset)),
+      offset: String(offset),
+    })
+    const response = await fetch(
+      `${url}/rest/v1/${encodeURIComponent(HISTORICAL_TABLE)}?${params.toString()}`,
+      { headers: headers(), cache: 'no-store' },
+    )
+    if (!response.ok) throw new Error(`Supabase history read returned HTTP ${response.status}`)
+
+    const page = (await response.json()) as Array<Record<string, unknown>>
+    rows.push(...page.flatMap(parseHistoricalRow))
+    if (page.length < Math.min(SUPABASE_PAGE_SIZE, fetchLimit - offset)) break
+  }
+
+  return rows
+    .filter((row) => (!options?.from || row.date >= options.from) && (!options?.to || row.date <= options.to))
+    .sort((left, right) => left.date.localeCompare(right.date))
+    .slice(-requestedLimit)
+    .map(({ date, price }) => ({ date, price }))
+}
+
+function parseHistoricalDate(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const text = value.trim()
+  const slashMatch = text.match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
+  if (slashMatch) return `${slashMatch[3]}-${slashMatch[1]}-${slashMatch[2]}`
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text
+  return null
+}
+
+function parseHistoricalRow(row: Record<string, unknown>): CoffeeMarketHistoryRow[] {
+  const date = parseHistoricalDate(row.Date ?? row.date)
+  const price = Number(row.Price ?? row.price)
+  const open = Number(row.Open ?? row.open)
+  const high = Number(row.High ?? row.high)
+  const low = Number(row.Low ?? row.low)
+  if (!date || ![price, open, high, low].every((value) => Number.isFinite(value) && value > 0)) return []
+  return [{
+    date,
+    price,
+    open,
+    high,
+    low,
+    volume: String(row['Vol.'] ?? row.volume ?? ''),
+    changePercent: String(row['Change %'] ?? row.changePercent ?? ''),
+  }]
+}
+
+export async function getCoffeeMarketHistoryRow(date: string): Promise<CoffeeMarketHistoryRow | null> {
+  const { url } = getSupabaseConfig()
+  const params = new URLSearchParams({ select: '*', market_date: `eq.${date}`, limit: '1' })
+  const response = await fetch(
+    `${url}/rest/v1/${encodeURIComponent(HISTORICAL_TABLE)}?${params.toString()}`,
+    { headers: headers(), cache: 'no-store' },
+  )
+  if (!response.ok) throw new Error(`Supabase history row read returned HTTP ${response.status}`)
+  const rows = (await response.json()) as Array<Record<string, unknown>>
+  return rows.flatMap(parseHistoricalRow)[0] ?? null
+}
+
+export async function upsertCoffeeMarketHistoryRow(row: CoffeeMarketHistoryRow): Promise<boolean> {
+  const { url } = getSupabaseConfig()
+  const existing = await getCoffeeMarketHistoryRow(row.date)
+  const [year, month, day] = row.date.split('-')
+  const response = await fetch(
+    `${url}/rest/v1/${encodeURIComponent(HISTORICAL_TABLE)}?on_conflict=market_date`,
+    {
+      method: 'POST',
+      headers: { ...headers('resolution=merge-duplicates,return=minimal'), 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        market_date: row.date,
+        Date: `${month}/${day}/${year}`,
+        Price: row.price,
+        Open: row.open,
+        High: row.high,
+        Low: row.low,
+        'Vol.': row.volume,
+        'Change %': row.changePercent,
+      }),
+    },
+  )
+  if (!response.ok) throw new Error(`Supabase history upsert returned HTTP ${response.status}: ${await response.text()}`)
+  return existing !== null
 }
 
 export async function upsertCoffeeMarketSnapshot(snapshot: CoffeeMarketSnapshot): Promise<void> {

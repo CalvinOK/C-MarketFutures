@@ -4,6 +4,7 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from flask import Flask, jsonify, request, Response
+import requests
 
 from .runner import run_local_script
 
@@ -25,6 +26,7 @@ CSV_DATA_DIRS = [
 ]
 
 MARKET_CACHE: dict[str, dict] = {}
+FORECAST_CACHE: dict[str, dict] = {}
 DEFAULT_CONTRACTS_SCRIPT = "barchart_scraper/scraper.py"
 DEFAULT_PROJECTION_SCRIPT = "scripts/run_old_projection_pipeline.py"
 DEFAULT_NEWS_SCRIPT = "scripts/news_scraper.py"
@@ -173,6 +175,16 @@ def _require_file(file_name: str, candidate_dirs: list[Path]) -> Path:
 def _get_contracts_script_path() -> str:
     return os.getenv("CONTRACTS_SCRIPT", DEFAULT_CONTRACTS_SCRIPT)
 
+
+def _market_api_auth_error():
+    expected = os.getenv("MARKET_API_TOKEN", "").strip()
+    if not expected:
+        return None
+    provided = request.headers.get("Authorization", "")
+    if provided != f"Bearer {expected}":
+        return jsonify({"error": "Unauthorized"}), 401
+    return None
+
 @app.route("/")
 def root():
     return jsonify({
@@ -180,6 +192,8 @@ def root():
         "endpoints": [
             "/api/hello",
             "/api/projected-spot",
+            "/api/coffee/history/latest.csv",
+            "/api/coffee/forecast",
             "/api/contracts",
             "/api/snapshot",
             "/api/news",
@@ -270,6 +284,97 @@ def projected_spot():
 
     _write_cached("projected-spot", cutoff_friday, payload)
     return jsonify(payload)
+
+
+@app.route("/api/coffee/history/latest.csv", methods=["GET"])
+@app.route("/coffee/history/latest.csv", methods=["GET"])
+def latest_coffee_history_csv():
+    """Return recent Coffee C daily OHLCV rows from the existing Databento path."""
+    auth_error = _market_api_auth_error()
+    if auth_error:
+        return auth_error
+    try:
+        from scripts.fetch_logdata import build_logdata_csv, fetch_databento_history
+
+        end = datetime.now(UTC).date() - timedelta(days=1)
+        start = end - timedelta(days=10)
+        raw = fetch_databento_history(
+            "coffee",
+            "IFUS.IMPACT",
+            "KC.c.0",
+            "ohlcv-1d",
+            start,
+            end,
+            stype_in="continuous",
+        )
+        csv_data = build_logdata_csv(raw).to_csv(index=False)
+        return Response(csv_data, mimetype="text/csv")
+    except Exception as exc:
+        print(f"[coffee-history-latest] provider failure: {type(exc).__name__}: {exc}")
+        return jsonify({"error": "Unable to fetch latest Coffee C daily data", "code": "provider_data_error"}), 502
+
+
+def _fetch_supabase_history_for_forecast() -> list[dict]:
+    supabase_url = os.getenv("SUPABASE_URL", "").rstrip("/")
+    supabase_key = os.getenv("SUPABASE_SECRET_KEY", "")
+    if not supabase_url or not supabase_key:
+        raise RuntimeError("SUPABASE_URL and SUPABASE_SECRET_KEY are required for forecast")
+
+    rows: list[dict] = []
+    for offset in range(0, 5000, 1000):
+        response = requests.get(
+            f'{supabase_url}/rest/v1/Coffee%20C%20Historical%20Data',
+            headers={"apikey": supabase_key, "Authorization": f"Bearer {supabase_key}"},
+            params={"select": '"Date","Price"', "limit": 1000, "offset": offset},
+            timeout=20,
+        )
+        response.raise_for_status()
+        page = response.json()
+        if not isinstance(page, list):
+            raise ValueError("Supabase forecast history response was not an array")
+        rows.extend(page)
+        if len(page) < 1000:
+            break
+    return rows
+
+
+@app.route("/api/coffee/forecast", methods=["GET"])
+@app.route("/coffee/forecast", methods=["GET"])
+def coffee_forecast():
+    auth_error = _market_api_auth_error()
+    if auth_error:
+        return auth_error
+    try:
+        from backend.ml.coffee_daily_forecast import train_direct_forecast
+
+        history = _fetch_supabase_history_for_forecast()
+        if not history:
+            return jsonify({"error": "Coffee C history is empty", "code": "insufficient_history"}), 422
+        result = train_direct_forecast(history)
+        payload = {
+            "format": "coffee-daily-forecast.v1",
+            "asOf": result.as_of,
+            "currentPrice": result.current_price,
+            "unit": result.unit,
+            "forecast": result.forecast,
+            "validation": result.validation,
+            "featureCount": result.feature_count,
+            "rowsUsed": result.rows_used,
+        }
+        FORECAST_CACHE.clear()
+        FORECAST_CACHE[result.as_of] = payload
+        return jsonify(payload)
+    except ValueError as exc:
+        return jsonify({"error": str(exc), "code": "invalid_or_insufficient_history"}), 422
+    except requests.RequestException as exc:
+        print(f"[coffee-forecast] database failure: {type(exc).__name__}: {exc}")
+        return jsonify({"error": "Unable to retrieve Coffee C history", "code": "database_error"}), 502
+    except ImportError as exc:
+        print(f"[coffee-forecast] dependency failure: {exc}")
+        return jsonify({"error": "Forecast dependencies are unavailable", "code": "dependency_error"}), 503
+    except Exception as exc:
+        print(f"[coffee-forecast] model failure: {type(exc).__name__}: {exc}")
+        return jsonify({"error": "Coffee forecast training failed", "code": "model_error"}), 500
 
 
 @app.route("/api/contracts", methods=["GET"])
