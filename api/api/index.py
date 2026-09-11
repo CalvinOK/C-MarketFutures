@@ -188,6 +188,8 @@ def _fetch_supabase_history_for_forecast() -> list[dict]:
 
 @app.route("/api/coffee/forecast", methods=["GET"])
 @app.route("/coffee/forecast", methods=["GET"])
+@app.route("/api/projected-spot", methods=["GET"])
+@app.route("/projected-spot", methods=["GET"])
 def coffee_forecast():
     auth_error = _market_api_auth_error()
     if auth_error:
