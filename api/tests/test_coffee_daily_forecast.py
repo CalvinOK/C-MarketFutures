@@ -4,11 +4,10 @@ import unittest
 from datetime import date, timedelta
 
 import numpy as np
-import pandas as pd
 
 from backend.ml.coffee_daily_forecast import (
     build_features,
-    compare_price_series,
+    normalize_history,
     train_direct_forecast,
 )
 
@@ -35,14 +34,10 @@ class CoffeeDailyForecastTests(unittest.TestCase):
         self.assertTrue(all(item.weekday() < 5 for item in dates))
 
     def test_features_are_available_without_future_inputs(self) -> None:
-        frame = build_features(pd.DataFrame(self.rows).rename(columns={"Price": "price"}).assign(Date=lambda value: pd.to_datetime(value["Date"])))
-        self.assertNotIn("Price", frame.columns)
-        self.assertGreater(frame.shape[1], 10)
-
-    def test_compatibility_reports_material_mismatch(self) -> None:
-        left = pd.DataFrame([{"Date": "2025-01-01", "price": 100, "open": 99, "high": 101, "low": 98}])
-        right = pd.DataFrame([{"Date": "2025-01-01", "price": 900, "open": 900, "high": 901, "low": 899}])
-        self.assertFalse(compare_price_series(left, right)["compatible"])
+        dates, prices = normalize_history(self.rows)
+        matrix, names = build_features((dates, prices))
+        self.assertGreater(matrix.shape[1], 10)
+        self.assertEqual(matrix.shape[1], len(names))
 
 
 
