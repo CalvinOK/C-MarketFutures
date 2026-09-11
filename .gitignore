@@ -1,5 +1,6 @@
 .DS_Store
 **/.DS_Store
+*.tsbuildinfo
 
 # Environment files
 .env
@@ -12,6 +13,9 @@
 
 /outside data/
 /good.csv
+/US Coffee C Futures Historical Data.csv
+/coffeechartdata.csv
+/coffeechartdata_plot.png
 
 # Python cache and local env
 __pycache__/
