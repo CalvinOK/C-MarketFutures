@@ -7,6 +7,9 @@ import {
 import { NextResponse } from 'next/server'
 
 export const dynamic = 'force-dynamic'
+export const maxDuration = 60
+
+const DATABENTO_HANDOFF_DATE = '2026-09-10'
 
 function validateRecentMarketDate(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
@@ -38,12 +41,6 @@ export async function GET(request: Request) {
   try {
     const provider = await fetchLatestCoffeeHistoryCsv()
     const rows = parseCoffeeHistoryCsv(provider.csv)
-    for (const row of rows) {
-      row.source = provider.source ?? 'databento'
-      row.sourceContract = provider.sourceContract
-      row.sourceInstrumentId = provider.sourceInstrumentId
-      row.sourceRetrievedAt = provider.sourceRetrievedAt
-    }
     const candidate = rows.at(-1)
     if (!candidate) {
       return NextResponse.json({ status: 'no_new_market_date', reason: 'Provider returned no daily rows' })
@@ -54,6 +51,17 @@ export async function GET(request: Request) {
         { status: 422 },
       )
     }
+
+    // Investing.com history is frozen through the handoff date. Databento may
+    // only create or revise rows strictly after that date.
+    if (candidate.date <= DATABENTO_HANDOFF_DATE) {
+      return NextResponse.json({ status: 'no_new_market_date', date: candidate.date })
+    }
+
+    candidate.source = provider.source ?? 'databento'
+    candidate.sourceContract = provider.sourceContract
+    candidate.sourceInstrumentId = provider.sourceInstrumentId
+    candidate.sourceRetrievedAt = provider.sourceRetrievedAt
 
     const existing = await getCoffeeMarketHistoryRow(candidate.date)
     if (
@@ -73,10 +81,17 @@ export async function GET(request: Request) {
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown history update error'
     const lower = message.toLowerCase()
+    const isAbortError = error instanceof Error && error.name === 'AbortError'
     const isParsingError = lower.includes('csv')
     const isDatabaseError = lower.includes('supabase')
     const status = isParsingError ? 422 : 502
     console.error('[coffee-history-update] Failed:', message)
+    if (isAbortError) {
+      return NextResponse.json(
+        { status: 'provider_error', reason: 'provider_timeout' },
+        { status: 504 },
+      )
+    }
     return NextResponse.json(
       { status: isParsingError ? 'parsing_error' : isDatabaseError ? 'database_error' : 'provider_error', error: message },
       { status },

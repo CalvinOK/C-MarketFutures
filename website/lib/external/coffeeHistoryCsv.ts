@@ -146,7 +146,7 @@ export async function fetchLatestCoffeeHistoryCsv(): Promise<{
         : {}),
     },
     cache: 'no-store',
-  }, 20_000)
+  }, 45_000)
   if (!response.ok) throw new Error(`Coffee history provider returned HTTP ${response.status}`)
   return {
     csv: await response.text(),
