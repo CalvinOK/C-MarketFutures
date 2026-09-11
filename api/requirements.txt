@@ -5,4 +5,3 @@ beautifulsoup4>=4.12.0
 numpy>=1.24
 pandas>=2.0
 xgboost>=2.0
-databento>=0.76

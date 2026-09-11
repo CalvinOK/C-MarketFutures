@@ -5,7 +5,6 @@ from datetime import date, timedelta
 
 import numpy as np
 import pandas as pd
-from scripts.fetch_logdata import validate_ohlcv_rows
 
 from backend.ml.coffee_daily_forecast import (
     build_features,
@@ -45,10 +44,6 @@ class CoffeeDailyForecastTests(unittest.TestCase):
         right = pd.DataFrame([{"Date": "2025-01-01", "price": 900, "open": 900, "high": 901, "low": 899}])
         self.assertFalse(compare_price_series(left, right)["compatible"])
 
-    def test_rejects_zero_ohlc_provider_rows(self) -> None:
-        frame = pd.DataFrame([{"Date": "2025-05-15", "open": 0, "high": 0, "low": 0, "close": 0}])
-        with self.assertRaisesRegex(ValueError, "invalid OHLC"):
-            validate_ohlcv_rows(frame, "coffee")
 
 
 if __name__ == "__main__":

@@ -1,1 +1,0 @@
-print("projection stub ran")

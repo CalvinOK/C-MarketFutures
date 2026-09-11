@@ -3,7 +3,7 @@ import os
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
-from flask import Flask, jsonify, request, Response
+from flask import Flask, jsonify, request
 import requests
 
 from .runner import run_local_script
@@ -19,16 +19,8 @@ JSON_DATA_DIRS = [
     RUNTIME_DATA_DIR,
 ]
 
-CSV_DATA_DIRS = [
-    RUNTIME_DATA_DIR,
-    API_ROOT / "outputs",
-    PROJECT_ROOT / "outputs",
-]
-
 MARKET_CACHE: dict[str, dict] = {}
-FORECAST_CACHE: dict[str, dict] = {}
 DEFAULT_CONTRACTS_SCRIPT = "barchart_scraper/scraper.py"
-DEFAULT_PROJECTION_SCRIPT = "scripts/run_old_projection_pipeline.py"
 DEFAULT_NEWS_SCRIPT = "scripts/news_scraper.py"
 DEFAULT_BRIEF_SCRIPT = "scripts/sucafina_scraper.py"
 
@@ -37,7 +29,6 @@ _FRESHNESS_THRESHOLDS: dict[str, timedelta] = {
     "snapshot":       timedelta(hours=1),
     "news":           timedelta(days=1),
     "brief":          timedelta(days=7),
-    "projected-spot": timedelta(days=7),
 }
 
 
@@ -103,59 +94,14 @@ def _write_cached(endpoint: str, cutoff_friday: date, payload):
     MARKET_CACHE[_cache_key(endpoint, cutoff_friday)] = payload
 
 
-def _read_text_file(path: Path) -> str:
-    text = path.read_text(encoding="utf-8")
-    if not text.strip():
-        raise FileNotFoundError(f"File is empty: {path.name}")
-    return text
-
-
 def _read_json_file(path: Path):
     return json.loads(path.read_text(encoding="utf-8"))
-
-
-def _extract_as_of_date(forecast_csv: str) -> str | None:
-    lines = [line for line in forecast_csv.splitlines() if line.strip()]
-    if len(lines) < 2:
-        return None
-
-    header = [v.strip().lower() for v in lines[0].split(",")]
-    try:
-        idx = header.index("as_of_date")
-    except ValueError:
-        return None
-
-    first_row = [v.strip() for v in lines[1].split(",")]
-    if idx >= len(first_row):
-        return None
-    return first_row[idx] or None
 
 
 def _file_is_stale_since_last_friday(path: Path, cutoff_friday: date) -> bool:
     """File-mtime check — appropriate for JSON files written fresh each run."""
     mtime_date = datetime.fromtimestamp(path.stat().st_mtime, tz=UTC).date()
     return mtime_date < cutoff_friday
-
-
-def _forecast_is_stale(forecast_path: Path | None, cutoff_friday: date) -> bool:
-    """Check staleness using the as_of_date embedded in the CSV, not file mtime.
-
-    File mtime is unreliable: the pipeline can write a file after the last
-    Friday while the actual model data ends weeks earlier (e.g. ran April 22
-    but logdata ends April 2). The as_of_date column reflects the true last
-    training date, so we compare that against the most recent Friday.
-    """
-    if forecast_path is None:
-        return True
-    try:
-        text = forecast_path.read_text(encoding="utf-8")
-        as_of_str = _extract_as_of_date(text)
-        if not as_of_str:
-            return True
-        as_of = date.fromisoformat(as_of_str[:10])
-        return as_of < cutoff_friday
-    except Exception:
-        return True
 
 
 def _maybe_run_refresh_script(script_path: str | None):
@@ -191,8 +137,6 @@ def root():
         "message": "Coffee market API running on Flask",
         "endpoints": [
             "/api/hello",
-            "/api/projected-spot",
-            "/api/coffee/history/latest.csv",
             "/api/coffee/forecast",
             "/api/contracts",
             "/api/snapshot",
@@ -218,102 +162,6 @@ def echo():
     })
 
 
-@app.route("/api/projected-spot", methods=["GET"])
-@app.route("/projected-spot", methods=["GET"])
-def projected_spot():
-    cutoff_friday = _last_friday(datetime.now(UTC).date())
-    cached = _read_cached("projected-spot", cutoff_friday)
-    if isinstance(cached, dict):
-        freshness = cached.get("_freshness", {})
-        if not freshness.get("stale", True):
-            if request.args.get("format") == "csv":
-                return Response(cached["forecastCsv"], mimetype="text/csv")
-            return jsonify(cached)
-
-    refresh_result = None
-    run_refresh = request.args.get("run", "false").lower() in {"1", "true", "yes"}
-    script = request.args.get(
-        "script",
-        os.getenv("PROJECTION_SCRIPT", DEFAULT_PROJECTION_SCRIPT),
-    )
-
-    history_path = _first_existing_path("coffee_xgb_proj4_history.csv", CSV_DATA_DIRS)
-    forecast_path = _first_existing_path("coffee_xgb_proj4_rolling_path.csv", CSV_DATA_DIRS)
-
-    stale = _forecast_is_stale(forecast_path, cutoff_friday)
-    needs_refresh = run_refresh or history_path is None or forecast_path is None or stale
-
-    if needs_refresh and script:
-        refresh_result = _maybe_run_refresh_script(script)
-        if refresh_result and not refresh_result.get("ok", False):
-            return _refresh_error("Projection", refresh_result)
-
-    try:
-        history_path = _require_file("coffee_xgb_proj4_history.csv", CSV_DATA_DIRS)
-        forecast_path = _require_file("coffee_xgb_proj4_rolling_path.csv", CSV_DATA_DIRS)
-        history_csv = _read_text_file(history_path)
-        forecast_csv = _read_text_file(forecast_path)
-    except FileNotFoundError as exc:
-        detail = {"pipelineRun": refresh_result} if refresh_result else {}
-        return jsonify({"error": f"Missing required CSV: {exc}", **detail}), 404
-    except json.JSONDecodeError:
-        return jsonify({"error": "Invalid CSV file encoding"}), 500
-
-    if request.args.get("format") == "csv":
-        return Response(forecast_csv, mimetype="text/csv")
-
-    as_of_date = _extract_as_of_date(forecast_csv)
-    payload = {
-        "format": "projected-spot-csv.v1",
-        "files": {
-            "history": history_path.name,
-            "forecast": forecast_path.name,
-        },
-        "asOfDate": as_of_date,
-        "historyCsv": history_csv,
-        "forecastCsv": forecast_csv,
-        "_freshness": _check_freshness("projected-spot", as_of_date),
-    }
-    if refresh_result is not None:
-        payload["scriptRun"] = refresh_result
-        if not refresh_result.get("ok"):
-            return _refresh_error("Projection", refresh_result)
-
-    if payload["_freshness"].get("stale", True):
-        return _freshness_error("Projection", payload["_freshness"])
-
-    _write_cached("projected-spot", cutoff_friday, payload)
-    return jsonify(payload)
-
-
-@app.route("/api/coffee/history/latest.csv", methods=["GET"])
-@app.route("/coffee/history/latest.csv", methods=["GET"])
-def latest_coffee_history_csv():
-    """Return recent Coffee C daily OHLCV rows from the existing Databento path."""
-    auth_error = _market_api_auth_error()
-    if auth_error:
-        return auth_error
-    try:
-        from scripts.fetch_logdata import build_logdata_csv, fetch_databento_history
-
-        end = datetime.now(UTC).date() - timedelta(days=1)
-        start = end - timedelta(days=10)
-        raw = fetch_databento_history(
-            "coffee",
-            "IFUS.IMPACT",
-            "KC.c.0",
-            "ohlcv-1d",
-            start,
-            end,
-            stype_in="continuous",
-        )
-        csv_data = build_logdata_csv(raw).to_csv(index=False)
-        return Response(csv_data, mimetype="text/csv")
-    except Exception as exc:
-        print(f"[coffee-history-latest] provider failure: {type(exc).__name__}: {exc}")
-        return jsonify({"error": "Unable to fetch latest Coffee C daily data", "code": "provider_data_error"}), 502
-
-
 def _fetch_supabase_history_for_forecast() -> list[dict]:
     supabase_url = os.getenv("SUPABASE_URL", "").rstrip("/")
     supabase_key = os.getenv("SUPABASE_SECRET_KEY", "")
@@ -321,11 +169,11 @@ def _fetch_supabase_history_for_forecast() -> list[dict]:
         raise RuntimeError("SUPABASE_URL and SUPABASE_SECRET_KEY are required for forecast")
 
     rows: list[dict] = []
-    for offset in range(0, 5000, 1000):
+    for offset in range(0, 10000, 1000):
         response = requests.get(
             f'{supabase_url}/rest/v1/Coffee%20C%20Historical%20Data',
             headers={"apikey": supabase_key, "Authorization": f"Bearer {supabase_key}"},
-            params={"select": '"Date","Price"', "limit": 1000, "offset": offset},
+            params={"select": '\"Date\",\"Price\"', "limit": 1000, "offset": offset},
             timeout=20,
         )
         response.raise_for_status()
@@ -361,8 +209,6 @@ def coffee_forecast():
             "featureCount": result.feature_count,
             "rowsUsed": result.rows_used,
         }
-        FORECAST_CACHE.clear()
-        FORECAST_CACHE[result.as_of] = payload
         return jsonify(payload)
     except ValueError as exc:
         return jsonify({"error": str(exc), "code": "invalid_or_insufficient_history"}), 422
@@ -591,6 +437,5 @@ def health():
             "service": "coffee-market-api",
             "timestamp_utc": datetime.now(UTC).isoformat(),
             "jsonSearchDirs": [str(path) for path in JSON_DATA_DIRS],
-            "csvSearchDirs": [str(path) for path in CSV_DATA_DIRS],
         }
     )

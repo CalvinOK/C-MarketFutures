@@ -1,1 +1,0 @@
-print("contracts stub ran")

@@ -7,5 +7,7 @@ tests/
 **/tests/
 outputs/
 logdata/
+scripts/run_old_projection_pipeline.py
+scripts/projection_stub.py
 *.ipynb
 *.pyc
