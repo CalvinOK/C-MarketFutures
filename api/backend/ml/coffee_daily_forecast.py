@@ -7,7 +7,6 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 import numpy as np
-from xgboost import XGBRegressor
 
 FORECAST_HORIZONS = tuple(range(1, 32))
 MIN_TRAIN_ROWS = 400
@@ -71,13 +70,30 @@ def build_features(history: tuple[list[date], np.ndarray]) -> tuple[np.ndarray, 
 def target_for_horizon(prices: np.ndarray, horizon: int) -> np.ndarray:
     target = np.full(len(prices), np.nan); target[:-horizon] = np.log(prices[horizon:]) - np.log(prices[:-horizon]); return target
 
-def _model() -> XGBRegressor:
-    return XGBRegressor(n_estimators=int(os.getenv("COFFEE_FORECAST_TREES", "160")), max_depth=4, learning_rate=0.035, subsample=0.85, colsample_bytree=0.85, min_child_weight=5, objective="reg:squarederror", eval_metric="rmse", n_jobs=1, random_state=42)
+class _RidgeRegressor:
+    def __init__(self, regularization: float = 1.0) -> None:
+        self.regularization = regularization
+        self.weights: np.ndarray | None = None
+
+    def fit(self, features: np.ndarray, target: np.ndarray) -> "_RidgeRegressor":
+        centered = np.nan_to_num(features, nan=0.0)
+        design = np.column_stack([np.ones(len(centered)), centered])
+        penalty = np.eye(design.shape[1]) * self.regularization
+        penalty[0, 0] = 0.0
+        self.weights = np.linalg.solve(design.T @ design + penalty, design.T @ target)
+        return self
+
+    def predict(self, features: np.ndarray) -> np.ndarray:
+        if self.weights is None:
+            raise RuntimeError("Forecast model has not been fitted")
+        centered = np.nan_to_num(features, nan=0.0)
+        design = np.column_stack([np.ones(len(centered)), centered])
+        return design @ self.weights
 
 def _fit_predict(train_x: np.ndarray, train_y: np.ndarray, predict_x: np.ndarray) -> float:
     if len(train_x) < MIN_TRAIN_ROWS: raise ValueError(f"Not enough model training rows: {len(train_x)}")
-    model = _model(); model.fit(train_x, train_y); prediction = float(model.predict(predict_x)[0])
-    if not math.isfinite(prediction): raise RuntimeError("XGBoost returned a non-finite forecast")
+    model = _RidgeRegressor().fit(train_x, train_y); prediction = float(model.predict(predict_x)[0])
+    if not math.isfinite(prediction): raise RuntimeError("Forecast model returned a non-finite prediction")
     return prediction
 
 def _metrics(actual: np.ndarray, predicted: np.ndarray, baseline: np.ndarray) -> dict[str, float]:
@@ -88,7 +104,7 @@ def validate(features: np.ndarray, prices: np.ndarray, horizons: tuple[int, ...]
     for horizon in horizons:
         target = target_for_horizon(prices, horizon); valid = np.isfinite(features).all(axis=1) & np.isfinite(target); train = valid & (np.arange(len(prices)) < split); test = valid & (np.arange(len(prices)) >= split)
         if train.sum() < MIN_TRAIN_ROWS or test.sum() < 5: continue
-        model = _model(); model.fit(features[train], target[train]); indexes = np.flatnonzero(test); baseline = prices[indexes]; actual = prices[indexes + horizon]; predicted = baseline * np.exp(model.predict(features[test])); metrics = _metrics(actual, predicted, baseline); results.append({"horizon": horizon, **metrics, "model_beats_baseline_mae": metrics["mae"] < metrics["baseline_mae"]})
+        model = _RidgeRegressor().fit(features[train], target[train]); indexes = np.flatnonzero(test); baseline = prices[indexes]; actual = prices[indexes + horizon]; predicted = baseline * np.exp(model.predict(features[test])); metrics = _metrics(actual, predicted, baseline); results.append({"horizon": horizon, **metrics, "model_beats_baseline_mae": metrics["mae"] < metrics["baseline_mae"]})
     return results
 
 def _future_dates(as_of: date, count: int = 31) -> list[str]:
