@@ -27,6 +27,7 @@ _RAW_SYMBOL_RE = re.compile(r"^KC\s+FM([HKN UZ])(\d{4})!$".replace(" ", ""))
 _CACHE: tuple[float, dict[str, Any]] | None = None
 _CACHE_SECONDS = 600
 ROLL_DAYS_BEFORE_EXPIRY = 10
+UNDEFINED_TIMESTAMPS = {"18446744073709551615", "9223372036854775807"}
 
 
 class DatabentoProviderError(RuntimeError):
@@ -35,6 +36,20 @@ class DatabentoProviderError(RuntimeError):
         self.reason = reason
         self.status = status
         self.missing_fields = missing_fields or []
+
+
+def _decode_databento_timestamp(value: Any) -> datetime | None:
+    """Decode Databento Unix-nanosecond timestamps, rejecting sentinels."""
+    text = str(value) if value is not None else ""
+    if not text or text in UNDEFINED_TIMESTAMPS:
+        return None
+    try:
+        number = int(text)
+        if number <= 0 or number >= 10**20:
+            return None
+        return datetime.fromtimestamp(number / 1_000_000_000, tz=timezone.utc)
+    except (TypeError, ValueError, OSError, OverflowError):
+        return None
 
 
 def _licensed_end() -> datetime:
@@ -186,16 +201,13 @@ def _latest_statistics(definitions: list[dict[str, Any]]) -> dict[str, dict[str,
         raw, key = compound.rsplit(":", 1)
         grouped.setdefault(raw, {})[key] = item["value"]
         try:
-            timestamp = int(item["event"])
-            if timestamp > 10**15:
-                published = datetime.fromtimestamp(timestamp / 1_000_000_000, tz=timezone.utc)
+            published = _decode_databento_timestamp(item["event"])
+            if published is not None:
                 grouped[raw]["asOf"] = published.isoformat()
                 reference = item.get("reference")
-                if reference and str(reference).isdigit() and int(reference) < 10**20:
-                    grouped[raw]["statDate"] = datetime.fromtimestamp(int(reference) / 1_000_000_000, tz=timezone.utc).date().isoformat()
-                else:
-                    grouped[raw].setdefault("statDate", published.date().isoformat())
-        except (TypeError, ValueError, OSError):
+                reference_date = _decode_databento_timestamp(reference)
+                grouped[raw]["statDate"] = (reference_date or published).date().isoformat()
+        except (TypeError, ValueError, OSError, OverflowError):
             pass
     return grouped
 
@@ -241,8 +253,16 @@ def fetch_latest_daily_observation(current_symbol: str | None = None) -> dict[st
         if all(value in (None, "", "0", 0, "0.0") for value in raw_values.values()):
             raise DatabentoProviderError("invalid_ohlc", missing_fields=missing)
         raise DatabentoProviderError("missing_ohlc", missing_fields=missing)
+    stat_date = values.get("statDate")
+    try:
+        parsed_date = date.fromisoformat(str(stat_date))
+    except (TypeError, ValueError):
+        raise DatabentoProviderError("invalid_market_date")
+    today = datetime.now(timezone.utc).date()
+    if parsed_date > today or (today - parsed_date).days > 14:
+        raise DatabentoProviderError("invalid_market_date")
     return {
-        "date": values.get("statDate"),
+        "date": parsed_date.isoformat(),
         "price": price,
         "open": open_price,
         "high": high,
