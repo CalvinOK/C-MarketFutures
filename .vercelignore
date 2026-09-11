@@ -1,5 +1,8 @@
 **/.venv/
 **/.vercel/
+**/node_modules/
+website/.next/
+website/.turbo/
 **/__pycache__/
 *.py[cod]
 api/tests/
