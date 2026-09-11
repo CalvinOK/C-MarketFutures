@@ -18,7 +18,6 @@ This script keeps last-known-good files by only replacing files after a successf
 from __future__ import annotations
 
 import argparse
-import asyncio
 import json
 import logging
 import os
@@ -33,13 +32,6 @@ from typing import Any
 from urllib.parse import unquote
 
 import requests
-from bs4 import BeautifulSoup
-
-try:
-    from playwright.async_api import async_playwright
-except Exception:  # pragma: no cover - import only required when fallback is used
-    async_playwright = None
-
 TARGET_URL = "https://www.barchart.com/futures/quotes/KC*0/futures-prices"
 QUOTE_JSON_URL = "https://www.barchart.com/proxies/core-api/v1/quotes/get"
 DEFAULT_TIMEOUT_SECONDS = 20
@@ -282,51 +274,7 @@ def fetch_quote_json(url: str, timeout_seconds: int, retries: int, backoff_secon
 
 
 def extract_rows_from_table_html(html: str) -> list[RawRow]:
-    soup = BeautifulSoup(html, "html.parser")
-    raw_rows: list[RawRow] = []
-
-    for table in soup.find_all("table"):
-        header_cells = table.select("thead tr th")
-        headers = [h.get_text(" ", strip=True).lower() for h in header_cells]
-        if not headers:
-            continue
-
-        joined = " ".join(headers)
-        if "open" not in joined or "volume" not in joined:
-            continue
-
-        for tr in table.select("tbody tr"):
-            cells = [td.get_text(" ", strip=True) for td in tr.find_all("td")]
-            if not cells:
-                continue
-
-            symbol = None
-            for cell in cells:
-                symbol = normalize_symbol(cell)
-                if symbol:
-                    break
-            if not symbol:
-                continue
-
-            # Field mapping comments (from table columns):
-            # - symbol: symbol/month column
-            # - last_price: "Last" or "Close"
-            # - price_change: "Change"
-            # - price_change_pct: "% Change" / "Percent Change"
-            # - volume: "Volume"
-            # - open_interest: "Open Interest"
-            raw_rows.append(
-                RawRow(
-                    symbol=symbol,
-                    last_price=value_from_header(cells, headers, "last", "close", "settle"),
-                    price_change=value_from_header(cells, headers, "change"),
-                    price_change_pct=value_from_header(cells, headers, "% change", "percent change"),
-                    volume=value_from_header(cells, headers, "volume"),
-                    open_interest=value_from_header(cells, headers, "open interest"),
-                )
-            )
-
-    return dedupe_rows(raw_rows)
+    raise RuntimeError("HTML table fallback is not included in the production scraper; Barchart JSON was unavailable")
 
 
 def extract_rows_from_quote_json(payload: dict[str, Any]) -> list[RawRow]:
@@ -370,8 +318,7 @@ def dedupe_rows(rows: list[RawRow]) -> list[RawRow]:
 
 
 async def extract_rows_with_playwright(url: str, timeout_ms: int) -> list[RawRow]:
-    if async_playwright is None:
-        raise RuntimeError("Playwright is not installed. Install with: pip install playwright")
+    raise RuntimeError("Playwright fallback is not included in the production scraper; Barchart JSON was unavailable")
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
@@ -638,23 +585,7 @@ def scrape_contracts(
         log_event(logger, "quote_json_parser_result", rows=len(rows))
 
     if not rows:
-        html = fetch_html_requests(
-            url=url,
-            timeout_seconds=timeout_seconds,
-            retries=retries,
-            backoff_seconds=backoff_seconds,
-            logger=logger,
-        )
-
-        rows = extract_rows_from_table_html(html)
-        if rows:
-            log_event(logger, "requests_parser_success", rows=len(rows))
-        else:
-            log_event(logger, "requests_parser_empty", message="No table rows found; trying Playwright")
-
-        if not rows:
-            rows = asyncio.run(extract_rows_with_playwright(url, timeout_ms=timeout_seconds * 1000))
-            log_event(logger, "playwright_parser_result", rows=len(rows))
+        raise RuntimeError("Barchart quote JSON returned no usable contract rows")
 
     captured_at = datetime.now(UTC).isoformat()
     contracts = transform_rows_to_contracts(rows, captured_at=captured_at, logger=logger)
