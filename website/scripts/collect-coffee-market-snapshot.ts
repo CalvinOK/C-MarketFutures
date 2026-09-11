@@ -1,4 +1,6 @@
-import { chromium } from 'playwright'
+import chromium from '@sparticuz/chromium'
+import { chromium as playwrightChromium } from 'playwright-core'
+import { existsSync } from 'node:fs'
 import {
   calculateCurveShape,
   calculateTotalVolume,
@@ -12,6 +14,30 @@ const ICE_URL = 'https://www.ice.com/products/15/Coffee-C/data?marketId=5460931'
 const CFTC_URL = 'https://publicreporting.cftc.gov/resource/6dca-aqww.json'
 const CFTC_MARKET_CODE = '083731'
 
+async function getBrowserExecutablePath(): Promise<string> {
+  const configured = process.env.PLAYWRIGHT_EXECUTABLE_PATH?.trim()
+  if (configured) {
+    if (!existsSync(configured)) throw new Error(`Configured browser executable does not exist: ${configured}`)
+    return configured
+  }
+  if (process.platform === 'darwin') {
+    const candidates = [
+      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+      '/Applications/Chromium.app/Contents/MacOS/Chromium',
+      `${process.env.HOME ?? ''}/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`,
+      `${process.env.HOME ?? ''}/Applications/Chromium.app/Contents/MacOS/Chromium`,
+    ]
+    const executable = candidates.find((candidate) => candidate && existsSync(candidate))
+    if (!executable) {
+      throw new Error('No macOS Chrome/Chromium executable found; set PLAYWRIGHT_EXECUTABLE_PATH')
+    }
+    return executable
+  }
+  const executable = await chromium.executablePath()
+  if (!existsSync(executable)) throw new Error(`Serverless Chromium executable does not exist: ${executable}`)
+  return executable
+}
+
 type CftcRow = {
   cftc_contract_market_code?: string
   report_date_as_yyyy_mm_dd?: string
@@ -19,7 +45,12 @@ type CftcRow = {
 }
 
 async function extractIceRows(): Promise<string[][]> {
-  const browser = await chromium.launch({ headless: true })
+  const executablePath = await getBrowserExecutablePath()
+  const browser = await playwrightChromium.launch({
+    args: process.platform === 'linux' ? chromium.args : [],
+    executablePath,
+    headless: true,
+  })
   try {
     const page = await browser.newPage({ userAgent: 'CoffeeMarketSnapshot/1.0 (+GitHub Actions)' })
     await page.goto(ICE_URL, { waitUntil: 'domcontentloaded', timeout: 45_000 })
