@@ -89,7 +89,7 @@ export async function getCoffeeMarketHistory(options?: {
 
   for (let offset = 0; offset < fetchLimit; offset += SUPABASE_PAGE_SIZE) {
     const params = new URLSearchParams({
-      select: '*',
+      select: '"Date","Price"',
       limit: String(Math.min(SUPABASE_PAGE_SIZE, fetchLimit - offset)),
       offset: String(offset),
     })
@@ -100,7 +100,7 @@ export async function getCoffeeMarketHistory(options?: {
     if (!response.ok) throw new Error(`Supabase history read returned HTTP ${response.status}`)
 
     const page = (await response.json()) as Array<Record<string, unknown>>
-    rows.push(...page.flatMap(parseHistoricalRow))
+    rows.push(...page.flatMap(parseHistoricalPriceRow))
     if (page.length < Math.min(SUPABASE_PAGE_SIZE, fetchLimit - offset)) break
   }
 
@@ -109,6 +109,13 @@ export async function getCoffeeMarketHistory(options?: {
     .sort((left, right) => left.date.localeCompare(right.date))
     .slice(-requestedLimit)
     .map(({ date, price }) => ({ date, price }))
+}
+
+function parseHistoricalPriceRow(row: Record<string, unknown>): CoffeeMarketHistoryRow[] {
+  const date = parseHistoricalDate(row.Date ?? row.date)
+  const price = Number(row.Price ?? row.price)
+  if (!date || !Number.isFinite(price) || price <= 0) return []
+  return [{ date, price, open: price, high: price, low: price, volume: '', changePercent: '' }]
 }
 
 function parseHistoricalDate(value: unknown): string | null {
