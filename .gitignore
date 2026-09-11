@@ -48,3 +48,5 @@ api/logdata/
 
 # Local one-time history import files
 /website/import-data/*.csv
+.vercel
+.env*

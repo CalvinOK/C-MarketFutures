@@ -57,6 +57,12 @@ type ContractApiRow = {
   captured_at?: string | null;
 };
 
+type ContractsApiResponse = {
+  contracts: ContractApiRow[];
+  data?: ContractApiRow[];
+  metadata?: { isStale?: boolean; fetchedAt?: string; tradeDate?: string | null };
+};
+
 type NewsApiItem = {
   category: string;
   text: string;
@@ -109,6 +115,12 @@ type SnapshotData = {
   priceAsOf: string | null;
   marketDate: string;
   unit: "US¢/lb";
+  retrievedAt?: string;
+};
+
+type SnapshotApiResponse = {
+  snapshot: SnapshotData;
+  metadata?: { isStale?: boolean; ageMinutes?: number; fetchedAt?: string; lastSuccessfulUpdate?: string };
 };
 
 // ─── Display helpers ──────────────────────────────────────────────────────────
@@ -334,11 +346,13 @@ export default function CoffeeFuturesSite() {
 
   // Live data from backend API
   const [liveContracts, setLiveContracts] = useState<ContractApiRow[] | null>(null);
+  const [contractMetadata, setContractMetadata] = useState<ContractsApiResponse["metadata"] | null>(null);
   const [contractsUnavailable, setContractsUnavailable] = useState(false);
   const [contractPage, setContractPage] = useState(0);
   const [liveNews, setLiveNews] = useState<NewsApiItem[] | null>(null);
   const [liveSucafinaBrief, setLiveSucafinaBrief] = useState<SucafinaBriefApiItem | null>(null);
   const [liveSnapshot, setLiveSnapshot] = useState<SnapshotData | null>(null);
+  const [snapshotMetadata, setSnapshotMetadata] = useState<SnapshotApiResponse["metadata"] | null>(null);
   const [snapshotError, setSnapshotError] = useState<string | null>(null);
   const [isGlossaryOpen, setIsGlossaryOpen] = useState(false);
 
@@ -402,28 +416,24 @@ export default function CoffeeFuturesSite() {
   // Fetch contracts/news/snapshot/brief from API routes.
   useEffect(() => {
     let cancelled = false;
-    let firstLoad = true;
-
     async function loadLiveData() {
-      const refreshQuery = firstLoad ? "?run=true" : "";
-      firstLoad = false;
-
       const [contractsRes, newsRes, snapshotRes, briefRes] = await Promise.allSettled([
-        fetchJsonFromApi<ContractApiRow[]>(`/api/contracts${refreshQuery}`),
+        fetchJsonFromApi<ContractApiRow[]>('/api/contracts'),
         fetchJsonFromApi<NewsApiItem[]>("/api/news"),
-        fetchJsonFromApi<SnapshotData>("/api/coffee/market-snapshot"),
+        fetchJsonFromApi<SnapshotApiResponse>("/api/coffee/market-snapshot"),
         fetchJsonFromApi<SucafinaBriefApiItem>("/api/brief"),
       ]);
 
       if (cancelled) return;
 
       if (contractsRes.status === "fulfilled") {
-        const raw = contractsRes.value as ContractApiRow[] | { data?: ContractApiRow[]; contracts?: ContractApiRow[] };
+        const raw = contractsRes.value as ContractApiRow[] | ContractsApiResponse | { data?: ContractApiRow[]; contracts?: ContractApiRow[] };
         const data = Array.isArray(raw)
           ? raw
           : (raw.contracts ?? raw.data ?? []);
         if (Array.isArray(data) && data.length > 0) {
           setLiveContracts(data);
+          if (!Array.isArray(raw)) setContractMetadata((raw as ContractsApiResponse).metadata ?? null);
           setContractsUnavailable(false);
         } else {
           setLiveContracts(null);
@@ -441,7 +451,8 @@ export default function CoffeeFuturesSite() {
       }
 
       if (snapshotRes.status === "fulfilled") {
-        const data = snapshotRes.value;
+        const response = snapshotRes.value;
+        const data = response.snapshot ?? (response as unknown as SnapshotData);
         const isValidSnapshot =
           Number.isFinite(Number(data?.front)) &&
           Number(data.front) > 0 &&
@@ -451,6 +462,7 @@ export default function CoffeeFuturesSite() {
 
         if (isValidSnapshot) {
           setLiveSnapshot(data);
+                    setSnapshotMetadata(response.metadata ?? null);
           setSnapshotError(null);
         } else {
           setLiveSnapshot(null);
@@ -1346,7 +1358,7 @@ export default function CoffeeFuturesSite() {
                     onClick={handleDownloadLiveContracts}
                     className={`rounded-full border px-3 py-1 text-xs font-medium transition hover:border-[var(--bond-blue)]/35 hover:bg-[var(--baby-blue)]/22 ${isLiveData ? "border-green-200 bg-green-50 text-green-700" : contractsUnavailable ? "border-[var(--line)] bg-white text-[var(--muted)]" : "border-[var(--line-strong)] bg-[var(--prasad-purple)]/18 text-[var(--bond-blue)]"}`}
                   >
-                    {isLiveData ? "Live" : contractsUnavailable ? "N/A" : "Loading..."}
+                    {isLiveData ? (contractMetadata?.isStale ? "Stale" : "Cached") : contractsUnavailable ? "Unavailable" : "Loading..."}
                   </button>
                 </div>
               </div>
@@ -1490,13 +1502,19 @@ export default function CoffeeFuturesSite() {
                   <p className="text-xs text-[var(--muted)]">
                     Core futures metrics at a glance
                   </p>
+                  {snapshotMetadata && (
+                    <p className="mt-1 text-xs text-[var(--muted)]">
+                      {snapshotMetadata.isStale ? "Most recent available data · " : ""}
+                      Updated {snapshotMetadata.ageMinutes ?? 0}m ago
+                    </p>
+                  )}
                 </div>
                 <button
                   type="button"
                   onClick={handleDownloadLiveSnapshot}
                   className="rounded-full border border-[var(--line-strong)] bg-white px-3 py-1 text-xs font-medium text-[var(--bond-blue)] transition hover:border-[var(--bond-blue)]/35 hover:bg-[var(--baby-blue)]/22"
                 >
-                  Live summary
+                  Download snapshot
                 </button>
               </div>
 

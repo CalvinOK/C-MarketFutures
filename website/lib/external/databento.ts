@@ -15,6 +15,13 @@ export type ContractData = {
   source: 'databento' | 'alphavantage'
 }
 
+export class DatabentoProviderError extends Error {
+  constructor(message: string, readonly status?: number, readonly providerCode?: string) {
+    super(message)
+    this.name = 'DatabentoProviderError'
+  }
+}
+
 // ICE Coffee C expiry schedule — update annually
 const KC_EXPIRY_MAP: Record<string, string> = {
   KCH26: '2026-03-20',
@@ -30,7 +37,7 @@ const CONTINUOUS_SYMBOLS = ['KC.c.0', 'KC.c.1', 'KC.c.2', 'KC.c.3']
 
 export async function fetchCoffeeContracts(): Promise<ContractData[]> {
   const apiKey = process.env.DATABENTO_API_KEY
-  if (!apiKey) throw new Error('DATABENTO_API_KEY is not set')
+  if (!apiKey) throw new DatabentoProviderError('configuration_error')
 
   const now = new Date()
   const start = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000).toISOString()
@@ -56,7 +63,20 @@ export async function fetchCoffeeContracts(): Promise<ContractData[]> {
 
   if (!response.ok) {
     const body = await response.text()
-    throw new Error(`DataBento HTTP ${response.status}: ${body.slice(0, 200)}`)
+    let providerCode = ''
+    let providerMessage = body.replace(/\s+/g, ' ').slice(0, 240)
+    try {
+      const parsed = JSON.parse(body) as { code?: string; error?: string; message?: string }
+      providerCode = parsed.code ?? ''
+      providerMessage = parsed.error ?? parsed.message ?? providerMessage
+    } catch {
+      // Preserve a short sanitized text response for server logs.
+    }
+    throw new DatabentoProviderError(
+      `databento_http_error status=${response.status}${providerCode ? ` code=${providerCode}` : ''} message=${providerMessage}`,
+      response.status,
+      providerCode || undefined,
+    )
   }
 
   const records: Array<{

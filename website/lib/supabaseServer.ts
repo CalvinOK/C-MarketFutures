@@ -58,7 +58,7 @@ function headers(prefer?: string): HeadersInit {
 export async function getLatestCoffeeMarketSnapshot(): Promise<CoffeeMarketSnapshot | null> {
   const { url } = getSupabaseConfig()
   const response = await fetch(
-    `${url}/rest/v1/coffee_market_snapshots?select=*&order=market_date.desc,retrieved_at.desc&limit=1`,
+    `${url}/rest/v1/coffee_market_snapshots?select=*&order=retrieved_at.desc&limit=1`,
     { headers: headers(), cache: 'no-store' },
   )
   if (!response.ok) throw new Error(`Supabase snapshot read returned HTTP ${response.status}`)
@@ -192,7 +192,7 @@ export async function upsertCoffeeMarketHistoryRow(row: CoffeeMarketHistoryRow):
 
 export async function upsertCoffeeMarketSnapshot(snapshot: CoffeeMarketSnapshot): Promise<void> {
   const { url } = getSupabaseConfig()
-  const response = await fetch(`${url}/rest/v1/coffee_market_snapshots?on_conflict=market_date`, {
+  const response = await fetch(`${url}/rest/v1/coffee_market_snapshots`, {
     method: 'POST',
     headers: { ...headers('resolution=merge-duplicates,return=minimal'), 'Content-Type': 'application/json' },
     body: JSON.stringify({
