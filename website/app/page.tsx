@@ -42,13 +42,19 @@ type ForecastBandRow = {
 
 type ContractApiRow = {
   symbol: string;
-  expiry_date: string;
-  last_price: number;
-  price_change: number;
-  price_change_pct: number;
-  volume: number;
-  open_interest: number;
-  captured_at: string;
+  label?: string | null;
+  expiryDate?: string | null;
+  lastPrice?: number | null;
+  priceChange?: number | null;
+  priceChangePct?: number | null;
+  volume?: number | null;
+  openInterest?: number | null;
+  asOf?: string | null;
+  last_price?: number | null;
+  price_change?: number | null;
+  price_change_pct?: number | null;
+  open_interest?: number | null;
+  captured_at?: string | null;
 };
 
 type NewsApiItem = {
@@ -412,8 +418,10 @@ export default function CoffeeFuturesSite() {
       if (cancelled) return;
 
       if (contractsRes.status === "fulfilled") {
-        const raw = contractsRes.value as ContractApiRow[] | { data: ContractApiRow[] };
-        const data = Array.isArray(raw) ? raw : (raw as { data: ContractApiRow[] }).data;
+        const raw = contractsRes.value as ContractApiRow[] | { data?: ContractApiRow[]; contracts?: ContractApiRow[] };
+        const data = Array.isArray(raw)
+          ? raw
+          : (raw.contracts ?? raw.data ?? []);
         if (Array.isArray(data) && data.length > 0) {
           setLiveContracts(data);
           setContractsUnavailable(false);
@@ -492,18 +500,21 @@ export default function CoffeeFuturesSite() {
   // Derive display data from the API, or show placeholders after a failed request.
   const displayContracts = liveContracts
     ? liveContracts.map((c) => ({
-        month: symbolToMonth(c.symbol),
+        month: c.label ?? symbolToMonth(c.symbol),
         symbol: c.symbol,
-        price: Number(c.last_price).toFixed(2),
+        price: Number.isFinite(Number(c.lastPrice ?? c.last_price))
+          ? Number(c.lastPrice ?? c.last_price).toFixed(2)
+          : "N/A",
         change:
-          (Number(c.price_change) >= 0 ? "+" : "") +
-          Number(c.price_change).toFixed(2),
+          Number.isFinite(Number(c.priceChange ?? c.price_change))
+            ? (Number(c.priceChange ?? c.price_change) >= 0 ? "+" : "") + Number(c.priceChange ?? c.price_change).toFixed(2)
+            : "N/A",
         pct:
-          (Number(c.price_change_pct) >= 0 ? "+" : "") +
-          Number(c.price_change_pct).toFixed(2) +
-          "%",
-        volume: formatK(Number(c.volume)),
-        openInterest: formatK(Number(c.open_interest)),
+          Number.isFinite(Number(c.priceChangePct ?? c.price_change_pct))
+            ? (Number(c.priceChangePct ?? c.price_change_pct) >= 0 ? "+" : "") + Number(c.priceChangePct ?? c.price_change_pct).toFixed(2) + "%"
+            : "N/A",
+        volume: c.volume == null ? "N/A" : formatK(Number(c.volume)),
+        openInterest: c.openInterest == null && c.open_interest == null ? "N/A" : formatK(Number(c.openInterest ?? c.open_interest)),
       }))
     : contractsUnavailable
       ? unavailableContracts

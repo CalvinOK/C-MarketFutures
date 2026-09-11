@@ -228,54 +228,15 @@ def coffee_forecast():
 @app.route("/api/contracts", methods=["GET"])
 @app.route("/contracts", methods=["GET"])
 def contracts():
-    cutoff_friday = _last_friday(datetime.now(UTC).date())
-    run_refresh = request.args.get("run", "false").lower() in {"1", "true", "yes"}
-
-    script = request.args.get(
-        "script",
-        _get_contracts_script_path(),
-    )
-    refresh_result = None
-
-    contracts_path = _first_existing_path("contracts.json", JSON_DATA_DIRS)
-    is_stale = bool(contracts_path and _file_is_stale_since_last_friday(contracts_path, cutoff_friday))
-    needs_refresh = run_refresh or contracts_path is None or is_stale
-
-    cached = _read_cached("contracts", cutoff_friday)
-    if isinstance(cached, dict) and "data" in cached and not needs_refresh:
-        return jsonify(cached)
-
-    if needs_refresh and script:
-        refresh_result = _maybe_run_refresh_script(script)
-
-    if refresh_result and not refresh_result.get("ok", False):
-        return _refresh_error("Contracts", refresh_result)
-
+    auth_error = _market_api_auth_error()
+    if auth_error:
+        return auth_error
     try:
-        contracts_path = _require_file("contracts.json", JSON_DATA_DIRS)
-        rows = _read_json_file(contracts_path)
-    except FileNotFoundError as exc:
-        return jsonify({"error": f"Missing required JSON: {exc}"}), 404
-    except json.JSONDecodeError:
-        return jsonify({"error": "Invalid JSON in contracts.json"}), 500
-
-    if not isinstance(rows, list):
-        return jsonify({"error": "contracts.json must contain a JSON array"}), 500
-
-    latest_ts = max((r.get("captured_at", "") for r in rows), default=None)
-    payload = {"data": rows, "_freshness": _check_freshness("contracts", latest_ts)}
-    if refresh_result and not refresh_result.get("ok", False):
-        return _refresh_error("Contracts", refresh_result)
-
-    if payload["_freshness"].get("stale", True):
-        return _freshness_error("Contracts", payload["_freshness"])
-
-    _write_cached("contracts", cutoff_friday, payload)
-    response = jsonify(payload)
-    if refresh_result is not None:
-        response.headers["X-Script-Run"] = "ok"
-    return response
-
+        from databento_contracts import fetch_contracts
+        return jsonify(fetch_contracts())
+    except Exception as exc:
+        print(f"[contracts] Databento failure: {type(exc).__name__}: {exc}")
+        return jsonify({"error": "Unable to retrieve Coffee C contracts", "code": "contracts_provider_error"}), 502
 
 @app.route("/api/snapshot", methods=["GET"])
 @app.route("/snapshot", methods=["GET"])

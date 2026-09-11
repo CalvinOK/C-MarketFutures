@@ -6,11 +6,10 @@ https://www.barchart.com/futures/quotes/KC*0/futures-prices
 
 Flow:
 1) Bootstrap a requests session from the page HTML so Barchart sets its cookies.
-2) Fetch the underlying quote JSON endpoint directly.
-3) Fall back to HTML / Playwright parsing only if the JSON path fails.
-4) Validate/transform rows into contracts payload.
-5) Derive snapshot payload.
-6) Atomically write contracts.json and snapshot.json.
+2) Fetch the underlying public quote JSON endpoint directly.
+3) Validate/transform rows into contracts payload.
+4) Derive snapshot payload.
+5) Atomically write contracts.json and snapshot.json.
 
 This script keeps last-known-good files by only replacing files after a successful scrape.
 """
@@ -187,14 +186,6 @@ def month_year_from_symbol(symbol: str) -> tuple[str, int] | tuple[None, None]:
     return MONTH_NUM_TO_NAME[month], 2000 + int(match.group(2))
 
 
-def value_from_header(cells: list[str], headers: list[str], *needles: str) -> str:
-    for needle in needles:
-        for idx, header in enumerate(headers):
-            if needle in header and idx < len(cells):
-                return cells[idx]
-    return ""
-
-
 def build_session_headers() -> dict[str, str]:
     return {
         "User-Agent": (
@@ -273,10 +264,6 @@ def fetch_quote_json(url: str, timeout_seconds: int, retries: int, backoff_secon
     return None
 
 
-def extract_rows_from_table_html(html: str) -> list[RawRow]:
-    raise RuntimeError("HTML table fallback is not included in the production scraper; Barchart JSON was unavailable")
-
-
 def extract_rows_from_quote_json(payload: dict[str, Any]) -> list[RawRow]:
     raw_rows: list[RawRow] = []
     for item in payload.get("data", []):
@@ -317,127 +304,6 @@ def dedupe_rows(rows: list[RawRow]) -> list[RawRow]:
     return out
 
 
-async def extract_rows_with_playwright(url: str, timeout_ms: int) -> list[RawRow]:
-    raise RuntimeError("Playwright fallback is not included in the production scraper; Barchart JSON was unavailable")
-
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context(
-            user_agent=(
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/124.0.0.0 Safari/537.36"
-            )
-        )
-        page = await context.new_page()
-        await page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
-        await page.wait_for_timeout(1500)
-
-        data = await page.evaluate(
-            r"""
-            () => {
-              const symbolRegex = /\bKC[FGHJKMNQUVXZ]\d{2}\b/;
-              const tables = Array.from(document.querySelectorAll('table'));
-
-              const target = tables.find((t) => {
-                const text = (t.innerText || '').toLowerCase();
-                return text.includes('open interest') && text.includes('volume') && text.includes('kc');
-              });
-
-              if (!target) return [];
-
-              const headerCells = Array.from(target.querySelectorAll('thead th'));
-              const headers = headerCells.map((h) => (h.textContent || '').trim().toLowerCase());
-
-              const findIdx = (needles) => {
-                for (const needle of needles) {
-                  const idx = headers.findIndex((h) => h.includes(needle));
-                  if (idx >= 0) return idx;
-                }
-                return -1;
-              };
-
-              const idxLast = findIdx(['last', 'close', 'settle']);
-              const idxChange = findIdx(['change']);
-              const idxPct = findIdx(['% change', 'percent change']);
-              const idxVolume = findIdx(['volume']);
-              const idxOI = findIdx(['open interest']);
-
-              const rows = [];
-              for (const tr of target.querySelectorAll('tbody tr')) {
-                const cells = Array.from(tr.querySelectorAll('td')).map((td) => (td.textContent || '').trim());
-                if (!cells.length) continue;
-
-                let symbol = null;
-                for (const cell of cells) {
-                  const match = cell.match(symbolRegex);
-                  if (match) {
-                    symbol = match[0];
-                    break;
-                  }
-                }
-                if (!symbol) continue;
-
-                const valueAt = (i) => (i >= 0 && i < cells.length ? cells[i] : '');
-                rows.push({
-                  symbol,
-                  last_price: valueAt(idxLast),
-                  price_change: valueAt(idxChange),
-                  price_change_pct: valueAt(idxPct),
-                  volume: valueAt(idxVolume),
-                  open_interest: valueAt(idxOI),
-                });
-              }
-
-              return rows;
-            }
-            """
-        )
-
-        await context.close()
-        await browser.close()
-
-    return dedupe_rows([RawRow(**row) for row in data])
-
-
-def fetch_html_requests(
-    url: str,
-    timeout_seconds: int,
-    retries: int,
-    backoff_seconds: float,
-    logger: logging.Logger,
-) -> str:
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/124.0.0.0 Safari/537.36"
-        ),
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-    }
-
-    for attempt in range(1, retries + 1):
-        try:
-            response = requests.get(url, headers=headers, timeout=timeout_seconds)
-            response.raise_for_status()
-            return response.text
-        except Exception as exc:
-            log_event(
-                logger,
-                "request_failed",
-                attempt=attempt,
-                retries=retries,
-                error=str(exc),
-            )
-            if attempt == retries:
-                raise
-            sleep_for = backoff_seconds * (2 ** (attempt - 1)) + random.uniform(0, 0.35)
-            time.sleep(sleep_for)
-
-    raise RuntimeError("Unexpected retry loop exit")
-
-
 def transform_rows_to_contracts(rows: list[RawRow], captured_at: str, logger: logging.Logger) -> list[dict[str, Any]]:
     contracts: list[dict[str, Any]] = []
 
@@ -459,17 +325,8 @@ def transform_rows_to_contracts(rows: list[RawRow], captured_at: str, logger: lo
         if last_price is None:
             continue
 
-        if change is None:
-            change = 0.0
         if change_pct is None and last_price:
-            change_pct = round((change / last_price) * 100.0, 4)
-        elif change_pct is None:
-            change_pct = 0.0
-
-        if volume is None:
-            volume = 0
-        if open_interest is None:
-            open_interest = 0
+            change_pct = round((change / last_price) * 100.0, 4) if change is not None else None
 
         if not expiry or month is None or year is None:
             log_event(logger, "skip_invalid_symbol", symbol=row.symbol)
@@ -508,10 +365,6 @@ def validate_contracts(contracts: list[dict[str, Any]]) -> None:
         "symbol",
         "expiry_date",
         "last_price",
-        "price_change",
-        "price_change_pct",
-        "volume",
-        "open_interest",
         "captured_at",
         "source",
     ]
@@ -523,6 +376,12 @@ def validate_contracts(contracts: list[dict[str, Any]]) -> None:
         for field in required:
             if field not in contract or contract[field] is None:
                 raise ValueError(f"Contract at index {idx} missing required field: {field}")
+        if not isinstance(contract["last_price"], (int, float)) or contract["last_price"] <= 0:
+            raise ValueError(f"Contract at index {idx} has an invalid last price")
+        for field in ("volume", "open_interest"):
+            value = contract.get(field)
+            if value is not None and (not isinstance(value, (int, float)) or value < 0):
+                raise ValueError(f"Contract at index {idx} has an invalid {field}")
 
 
 def derive_curve_shape(contracts: list[dict[str, Any]]) -> str:

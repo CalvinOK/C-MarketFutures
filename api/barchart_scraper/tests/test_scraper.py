@@ -7,7 +7,6 @@ from scraper import (
     RawRow,
     derive_curve_shape,
     derive_snapshot,
-    extract_rows_from_table_html,
     extract_rows_from_quote_json,
     month_year_from_symbol,
     parse_compact_number,
@@ -40,48 +39,6 @@ def test_symbol_helpers():
     assert month == "Sep"
     assert year == 2026
 
-
-def test_extract_rows_from_table_html():
-    html = """
-    <html>
-      <body>
-        <table>
-          <thead>
-            <tr>
-              <th>Symbol</th>
-              <th>Last</th>
-              <th>Change</th>
-              <th>% Change</th>
-              <th>Volume</th>
-              <th>Open Interest</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>KCK26</td>
-              <td>193.40</td>
-              <td>1.25</td>
-              <td>0.65%</td>
-              <td>73.6K</td>
-              <td>369.4K</td>
-            </tr>
-            <tr>
-              <td>KCN26</td>
-              <td>195.10</td>
-              <td>0.50</td>
-              <td>0.26%</td>
-              <td>25.0K</td>
-              <td>180.2K</td>
-            </tr>
-          </tbody>
-        </table>
-      </body>
-    </html>
-    """
-    rows = extract_rows_from_table_html(html)
-    assert len(rows) == 2
-    assert rows[0].symbol == "KCK26"
-    assert rows[0].volume == "73.6K"
 
 def test_extract_rows_from_quote_json():
     payload = {
