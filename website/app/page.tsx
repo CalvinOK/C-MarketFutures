@@ -596,10 +596,24 @@ export default function CoffeeFuturesSite() {
     if (history.length === 0) {
       return [] as HistoryRow[];
     }
-    return history;
+    const latestDate = parseLocalDate(history[history.length - 1].date);
+    const cutoffDate = new Date(latestDate);
+    cutoffDate.setMonth(cutoffDate.getMonth() - 5);
+    return history.filter((row) => parseLocalDate(row.date) >= cutoffDate);
   }, [history]);
 
-  const displayForecastPath = forecastPath;
+  const displayForecastPath = useMemo(() => {
+    if (forecastPath.length === 0 || visibleHistory.length === 0) {
+      return [] as ChartForecastRow[];
+    }
+
+    const latestActualDate = parseLocalDate(visibleHistory[visibleHistory.length - 1].date);
+    const nextMonthEnd = new Date(latestActualDate.getFullYear(), latestActualDate.getMonth() + 2, 0);
+    return forecastPath.filter((row) => {
+      const forecastDate = parseLocalDate(row.date);
+      return forecastDate > latestActualDate && forecastDate <= nextMonthEnd;
+    });
+  }, [forecastPath, visibleHistory]);
 
   const chart = useMemo(() => {
     const width = 920;
