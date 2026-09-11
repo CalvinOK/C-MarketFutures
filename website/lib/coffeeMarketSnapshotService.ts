@@ -14,6 +14,7 @@ const DATASET = 'market_snapshot_hourly'
 export type CoffeeMarketSnapshotResult = {
   snapshot: NonNullable<Awaited<ReturnType<typeof getLatestCoffeeMarketSnapshot>>>
   metadata: {
+    retrievedAt: string
     source: 'supabase-cache' | 'supabase-stale' | 'collector'
     fetchedAt: string
     ageMinutes: number
@@ -28,7 +29,15 @@ function makeResult(snapshot: NonNullable<Awaited<ReturnType<typeof getLatestCof
   const ageMinutes = Math.max(0, Math.floor((Date.now() - Date.parse(fetchedAt)) / 60_000))
   return {
     snapshot,
-    metadata: { source, fetchedAt, ageMinutes, ttlMinutes: 60, isStale: stale, lastSuccessfulUpdate: fetchedAt },
+    metadata: {
+      retrievedAt: fetchedAt,
+      source,
+      fetchedAt,
+      ageMinutes,
+      ttlMinutes: 60,
+      isStale: stale,
+      lastSuccessfulUpdate: fetchedAt,
+    },
   }
 }
 
