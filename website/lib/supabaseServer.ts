@@ -29,6 +29,10 @@ export type CoffeeMarketHistoryRow = CoffeeMarketHistoryPoint & {
   low: number
   volume: string
   changePercent: string
+  source?: string | null
+  sourceContract?: string | null
+  sourceInstrumentId?: string | null
+  sourceRetrievedAt?: string | null
 }
 
 const HISTORICAL_TABLE = 'Coffee C Historical Data'
@@ -175,6 +179,10 @@ export async function upsertCoffeeMarketHistoryRow(row: CoffeeMarketHistoryRow):
         Low: row.low,
         'Vol.': row.volume,
         'Change %': row.changePercent,
+        source: row.source ?? 'databento',
+        source_contract: row.sourceContract ?? null,
+        source_instrument_id: row.sourceInstrumentId ?? null,
+        source_retrieved_at: row.sourceRetrievedAt ?? new Date().toISOString(),
       }),
     },
   )

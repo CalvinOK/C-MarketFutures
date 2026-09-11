@@ -3,7 +3,7 @@ import os
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, Response
 import requests
 
 from .runner import run_local_script
@@ -138,6 +138,7 @@ def root():
         "endpoints": [
             "/api/hello",
             "/api/coffee/forecast",
+            "/api/coffee/history/latest.csv",
             "/api/contracts",
             "/api/snapshot",
             "/api/news",
@@ -184,6 +185,50 @@ def _fetch_supabase_history_for_forecast() -> list[dict]:
         if len(page) < 1000:
             break
     return rows
+
+
+def _latest_history_source_contract() -> str | None:
+    url = os.getenv("SUPABASE_URL", "").rstrip("/")
+    key = os.getenv("SUPABASE_SECRET_KEY", "")
+    if not url or not key:
+        return None
+    response = requests.get(
+        f'{url}/rest/v1/Coffee%20C%20Historical%20Data',
+        headers={"apikey": key, "Authorization": f"Bearer {key}"},
+        params={"select": '"market_date","source_contract"', "order": "market_date.desc", "limit": 1},
+        timeout=15,
+    )
+    if not response.ok:
+        return None
+    rows = response.json()
+    return rows[0].get("source_contract") if rows and isinstance(rows[0], dict) else None
+
+
+@app.route("/api/coffee/history/latest.csv", methods=["GET"])
+@app.route("/coffee/history/latest.csv", methods=["GET"])
+def latest_coffee_history_csv():
+    auth_error = _market_api_auth_error()
+    if auth_error:
+        return auth_error
+    try:
+        from databento_contracts import fetch_latest_daily_observation
+
+        observation = fetch_latest_daily_observation(_latest_history_source_contract())
+        market_date = observation.get("date") or str(observation["asOf"])[:10]
+        parsed = datetime.fromisoformat(market_date[:10]).date()
+        date_text = parsed.strftime("%m/%d/%Y")
+        volume = observation.get("volume")
+        volume_text = "" if volume is None else (f"{volume / 1_000_000:.2f}M" if volume >= 1_000_000 else f"{volume / 1_000:.2f}K" if volume >= 1_000 else str(volume))
+        csv_text = "Date,Price,Open,High,Low,Vol.,Change %\n" + f"{date_text},{observation['price']},{observation['open']},{observation['high']},{observation['low']},{volume_text},\n"
+        response = Response(csv_text, mimetype="text/csv")
+        response.headers["X-Coffee-Source"] = observation["source"]
+        response.headers["X-Coffee-Source-Contract"] = observation["sourceContract"]
+        response.headers["X-Coffee-Source-Instrument-Id"] = observation["sourceInstrumentId"]
+        response.headers["X-Coffee-Source-Retrieved-At"] = observation["sourceRetrievedAt"]
+        return response
+    except Exception as exc:
+        print(f"[coffee-history-latest] Databento failure: {type(exc).__name__}: {exc}")
+        return jsonify({"error": "Unable to fetch latest Coffee C daily data", "code": "provider_data_error"}), 502
 
 
 @app.route("/api/coffee/forecast", methods=["GET"])

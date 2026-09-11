@@ -1,5 +1,5 @@
 import { enforceRateLimit } from '@/lib/apiGuard'
-import { compareCoffeeHistoryRows, fetchLatestCoffeeHistoryCsv, parseCoffeeHistoryCsv } from '@/lib/external/coffeeHistoryCsv'
+import { fetchLatestCoffeeHistoryCsv, parseCoffeeHistoryCsv } from '@/lib/external/coffeeHistoryCsv'
 import {
   getCoffeeMarketHistoryRow,
   upsertCoffeeMarketHistoryRow,
@@ -26,28 +26,13 @@ export async function GET(request: Request) {
   if (rateError) return rateError
 
   try {
-    const csv = await fetchLatestCoffeeHistoryCsv()
-    const rows = parseCoffeeHistoryCsv(csv)
-    const overlappingRows = []
+    const provider = await fetchLatestCoffeeHistoryCsv()
+    const rows = parseCoffeeHistoryCsv(provider.csv)
     for (const row of rows) {
-      const existing = await getCoffeeMarketHistoryRow(row.date)
-      if (existing) overlappingRows.push(existing)
-    }
-    const compatibility = compareCoffeeHistoryRows(overlappingRows, rows)
-    if (compatibility.compatible === false) {
-      return NextResponse.json(
-        { status: 'provider_incompatible', error: 'Databento and Investing.com OHLC values differ materially', compatibility },
-        { status: 422 },
-      )
-    }
-    if (
-      compatibility.compatible === null &&
-      process.env.COFFEE_HISTORY_COMPATIBILITY_VERIFIED !== 'true'
-    ) {
-      return NextResponse.json(
-        { status: 'provider_compatibility_unverified', error: 'No overlapping Investing.com/Databento dates were available; set COFFEE_HISTORY_COMPATIBILITY_VERIFIED=true only after review', compatibility },
-        { status: 412 },
-      )
+      row.source = provider.source ?? 'databento'
+      row.sourceContract = provider.sourceContract
+      row.sourceInstrumentId = provider.sourceInstrumentId
+      row.sourceRetrievedAt = provider.sourceRetrievedAt
     }
     const candidate = rows.at(-1)
     if (!candidate) {

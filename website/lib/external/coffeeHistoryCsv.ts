@@ -125,7 +125,13 @@ export function compareCoffeeHistoryRows(
   }
 }
 
-export async function fetchLatestCoffeeHistoryCsv(): Promise<string> {
+export async function fetchLatestCoffeeHistoryCsv(): Promise<{
+  csv: string
+  source: string | null
+  sourceContract: string | null
+  sourceInstrumentId: string | null
+  sourceRetrievedAt: string | null
+}> {
   const configuredUrl = process.env.COFFEE_HISTORY_CSV_URL?.trim()
   const baseUrl = process.env.MARKET_API_BASE_URL?.trim().replace(/\/$/, '')
     || (process.env.NODE_ENV !== 'production' ? 'http://127.0.0.1:8000' : '')
@@ -142,5 +148,11 @@ export async function fetchLatestCoffeeHistoryCsv(): Promise<string> {
     cache: 'no-store',
   }, 20_000)
   if (!response.ok) throw new Error(`Coffee history provider returned HTTP ${response.status}`)
-  return response.text()
+  return {
+    csv: await response.text(),
+    source: response.headers.get('x-coffee-source'),
+    sourceContract: response.headers.get('x-coffee-source-contract'),
+    sourceInstrumentId: response.headers.get('x-coffee-source-instrument-id'),
+    sourceRetrievedAt: response.headers.get('x-coffee-source-retrieved-at'),
+  }
 }

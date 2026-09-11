@@ -14,7 +14,10 @@ DATABENTO_URL = "https://hist.databento.com/v0/timeseries.get_range"
 MONTH_CODES = {"H": "Mar", "K": "May", "N": "Jul", "U": "Sep", "Z": "Dec"}
 STANDARD_MONTH_CODES = set(MONTH_CODES)
 STAT_TYPES = {
+    "open": 1,
     "settlement": 3,
+    "low": 4,
+    "high": 5,
     "cleared_volume": 6,
     "open_interest": 9,
     "close": 11,
@@ -23,6 +26,7 @@ STAT_TYPES = {
 _RAW_SYMBOL_RE = re.compile(r"^KC\s+FM([HKN UZ])(\d{4})!$".replace(" ", ""))
 _CACHE: tuple[float, dict[str, Any]] | None = None
 _CACHE_SECONDS = 600
+ROLL_DAYS_BEFORE_EXPIRY = 10
 
 
 def _licensed_end() -> datetime:
@@ -149,6 +153,7 @@ def _latest_statistics(definitions: list[dict[str, Any]]) -> dict[str, dict[str,
             latest[f"{raw}:{key}"] = {
                 "value": record.get("price") if key not in {"cleared_volume", "open_interest"} else record.get("quantity"),
                 "event": event_text,
+                "reference": _nested(record, "ts_ref"),
             }
     grouped: dict[str, dict[str, Any]] = {}
     for compound, item in latest.items():
@@ -157,10 +162,68 @@ def _latest_statistics(definitions: list[dict[str, Any]]) -> dict[str, dict[str,
         try:
             timestamp = int(item["event"])
             if timestamp > 10**15:
-                grouped[raw]["asOf"] = datetime.fromtimestamp(timestamp / 1_000_000_000, tz=timezone.utc).isoformat()
+                published = datetime.fromtimestamp(timestamp / 1_000_000_000, tz=timezone.utc)
+                grouped[raw]["asOf"] = published.isoformat()
+                reference = item.get("reference")
+                if reference and str(reference).isdigit() and int(reference) < 10**20:
+                    grouped[raw]["statDate"] = datetime.fromtimestamp(int(reference) / 1_000_000_000, tz=timezone.utc).date().isoformat()
+                else:
+                    grouped[raw].setdefault("statDate", published.date().isoformat())
         except (TypeError, ValueError, OSError):
             pass
     return grouped
+
+
+def _business_days_until(start: date, end: date) -> int:
+    cursor = start
+    count = 0
+    while cursor < end:
+        cursor += timedelta(days=1)
+        if cursor.weekday() < 5:
+            count += 1
+    return count
+
+
+def _select_forward_contract(definitions: list[dict[str, Any]], current_symbol: str | None = None) -> dict[str, Any]:
+    if current_symbol:
+        current = next((row for row in definitions if row["symbol"] == current_symbol), None)
+        if current and _business_days_until(date.today(), date.fromisoformat(current["expirationDate"])) > ROLL_DAYS_BEFORE_EXPIRY:
+            return current
+        if current:
+            later = [row for row in definitions if row["expirationDate"] > current["expirationDate"]]
+            if later:
+                return later[0]
+    suitable = [row for row in definitions if _business_days_until(date.today(), date.fromisoformat(row["expirationDate"])) > ROLL_DAYS_BEFORE_EXPIRY]
+    if not suitable:
+        raise RuntimeError("No Coffee C contract remains outside the forced-roll window")
+    return suitable[0]
+
+
+def fetch_latest_daily_observation(current_symbol: str | None = None) -> dict[str, Any]:
+    definitions = _definition_rows()
+    selected = _select_forward_contract(definitions, current_symbol)
+    stats = _latest_statistics([selected])
+    values = stats.get(selected["symbol"], {})
+    price = _positive_price(values.get("settlement"))
+    open_price = _positive_price(values.get("open"))
+    high = _positive_price(values.get("high"))
+    low = _positive_price(values.get("low"))
+    if any(value is None for value in (price, open_price, high, low)):
+        raise RuntimeError(f"Databento returned incomplete OHLC statistics for {selected['symbol']}")
+    return {
+        "date": values.get("statDate"),
+        "price": price,
+        "open": open_price,
+        "high": high,
+        "low": low,
+        "volume": _int(values.get("cleared_volume")),
+        "changePercent": None,
+        "source": "databento",
+        "sourceContract": selected["symbol"],
+        "sourceInstrumentId": str(selected["instrumentId"]),
+        "sourceRetrievedAt": datetime.now(timezone.utc).isoformat(),
+        "asOf": values.get("asOf"),
+    }
 
 
 def fetch_contracts() -> dict[str, Any]:
