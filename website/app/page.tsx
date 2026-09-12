@@ -533,11 +533,11 @@ export default function CoffeeFuturesSite() {
           : "N/A",
         change:
           Number.isFinite(Number(c.priceChange ?? c.price_change))
-            ? (Number(c.priceChange ?? c.price_change) >= 0 ? "+" : "") + Number(c.priceChange ?? c.price_change).toFixed(2)
+            ? (Number(c.priceChange ?? c.price_change) > 0 ? "+" : "") + Number(c.priceChange ?? c.price_change).toFixed(2)
             : "N/A",
         pct:
           Number.isFinite(Number(c.priceChangePct ?? c.price_change_pct))
-            ? (Number(c.priceChangePct ?? c.price_change_pct) >= 0 ? "+" : "") + Number(c.priceChangePct ?? c.price_change_pct).toFixed(2) + "%"
+            ? (Number(c.priceChangePct ?? c.price_change_pct) > 0 ? "+" : "") + Number(c.priceChangePct ?? c.price_change_pct).toFixed(2) + "%"
             : "N/A",
         volume: c.volume == null ? "N/A" : formatK(Number(c.volume)),
         sourceUrl: c.sourceUrl ?? null,
@@ -1275,7 +1275,7 @@ export default function CoffeeFuturesSite() {
               </div>
             </div>
 
-            <div className="rounded-3xl border border-[var(--line)] bg-white p-4">
+            <div className="flex min-h-0 flex-col rounded-3xl border border-[var(--line)] bg-white p-4">
               <div className="mb-3 flex items-center justify-between">
                 <h2 className="text-base font-medium text-[var(--bond-blue)]">
                   Today ({todayHeaderDate})
@@ -1398,11 +1398,11 @@ export default function CoffeeFuturesSite() {
                   Loading contracts...
                 </div>
               ) : (
-                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <div className="grid flex-1 auto-rows-fr gap-3 sm:grid-cols-2 xl:grid-cols-4">
                   {pagedContracts.map((contract, index) => (
                   <article
                     key={contractsUnavailable ? `na-${contractPage * contractsPerPage + index}` : contract.symbol}
-                    className={`flex h-full flex-col rounded-2xl border p-3.5 ${
+                    className={`flex h-full min-h-0 flex-col rounded-2xl border p-3.5 ${
                       index === 0
                         ? "border-[var(--bond-blue)]/16 bg-[var(--bond-blue)] text-white shadow-[0_14px_30px_rgba(32,44,102,0.18)]"
                         : "border-[var(--line)] bg-[var(--page-bg)]"
@@ -1455,7 +1455,7 @@ export default function CoffeeFuturesSite() {
                       US¢/lb delayed price
                     </div>
 
-                    <div className="mt-4 grid grid-cols-2 gap-x-3 gap-y-2 border-t border-current/10 pt-3 text-xs tabular-nums">
+                    <div className="mt-auto grid grid-cols-2 gap-x-3 gap-y-2 border-t border-current/10 pt-3 text-xs tabular-nums">
                       <div className="space-y-0.5">
                         <div
                           className={

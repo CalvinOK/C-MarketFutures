@@ -123,7 +123,13 @@ async function persistContracts(snapshot: CoffeeMarketSnapshot, contracts: IceCo
       fetched_at: retrievedAt,
       updated_at: retrievedAt,
       source: 'ice',
-      raw_metadata: { provider: 'ice-delayed', label: contract.contract, sourceName: contract.sourceName ?? 'ICE', sourceUrl: contract.sourceUrl ?? null },
+      raw_metadata: {
+        provider: 'ice-delayed',
+        label: contract.contract,
+        sourceName: contract.sourceName ?? 'ICE',
+        sourceUrl: contract.sourceUrl ?? null,
+        priceChangeDerived: contract.priceChangeDerived ?? false,
+      },
     }]
   })
   if (rows.length < 2) throw new Error('ICE returned fewer than two valid Coffee C contracts')

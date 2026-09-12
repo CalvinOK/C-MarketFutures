@@ -3,6 +3,7 @@ import test from 'node:test'
 import {
   calculateCurveShape,
   calculateTotalVolume,
+  derivePriceChangeFromPercent,
   parseContractMonth,
   parseRenderedIceRows,
   sortContractRecords,
@@ -51,6 +52,18 @@ test('parses ICE semantic headers for Last, Change, and Volume', () => {
   assert.equal(contracts[0].priceChange, 1.25)
   assert.equal(contracts[0].percentChange, 0.4)
   assert.equal(contracts[1].volume, 13995)
+})
+
+test('derives absolute ICE change from percent change when ICE omits Change', () => {
+  const contracts = parseRenderedIceRows([
+    ['Sep26', '313.50', '9/11/2026 3:33 PM', '-0.571', '5'],
+    ['Dec26', '284.25', '9/11/2026 5:29 PM', '-1.353', '13995'],
+  ], ['Contract', 'Last', 'Time(GMT)', '% Change', 'Volume'])
+  assert.equal(contracts[0].priceChange, derivePriceChangeFromPercent(313.5, -0.571))
+  assert.equal(contracts[0].priceChangeDerived, true)
+  assert.equal(contracts[0].priceChange?.toFixed(2), '-1.80')
+  assert.equal(derivePriceChangeFromPercent(313.5, 0)?.toFixed(2), '0.00')
+  assert.equal(derivePriceChangeFromPercent(313.5, 0.75)! > 0, true)
 })
 
 test('preserves an ICE contract source href when supplied', () => {

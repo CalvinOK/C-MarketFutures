@@ -6,6 +6,7 @@ export type IceCoffeeContract = {
   volume: number
   priceAsOf: string | null
   priceChange?: number | null
+  priceChangeDerived?: boolean
   percentChange?: number | null
   symbol?: string
   sourceUrl?: string
@@ -49,6 +50,11 @@ export function parseNumeric(value: string | number | null | undefined): number 
   if (!normalized || normalized === '-') return null
   const parsed = Number(normalized)
   return Number.isFinite(parsed) ? parsed : null
+}
+
+export function derivePriceChangeFromPercent(price: number, percentChange: number | null): number | null {
+  if (!Number.isFinite(price) || percentChange === null || !Number.isFinite(percentChange) || percentChange <= -100) return null
+  return Number((price - price / (1 + percentChange / 100)).toFixed(6))
 }
 
 export function parseContractMonth(label: string): { year: number; month: number } | null {
@@ -129,12 +135,16 @@ export function parseRenderedIceRows(rows: string[][] | ParsedIceRow[], headers?
     const volume = volumeCell === '-' || volumeCell === '' ? 0 : parseNumeric(volumeCell)
     if (price === null || price <= 0 || volume === null || volume < 0) continue
 
+    const percentChange = percentIndex >= 0 ? parseNumeric(cells[percentIndex]) : null
+    const directChange = changeIndex >= 0 ? parseNumeric(cells[changeIndex]) : null
+    const derivedChange = directChange === null ? derivePriceChangeFromPercent(price, percentChange) : null
     contracts.push({
       contract,
       price,
       volume,
-      priceChange: changeIndex >= 0 ? parseNumeric(cells[changeIndex]) : null,
-      percentChange: percentIndex >= 0 ? parseNumeric(cells[percentIndex]) : null,
+      priceChange: directChange ?? derivedChange,
+      priceChangeDerived: directChange === null && derivedChange !== null,
+      percentChange,
       priceAsOf: normalizeIceTimestamp(cells[contractIndex + 2] ?? ''),
       symbol: normalizeIceSymbol(contract) ?? undefined,
       sourceName: 'ICE',
