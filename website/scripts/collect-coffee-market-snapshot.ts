@@ -11,8 +11,8 @@ import {
   type IceCoffeeContract,
 } from '@/lib/coffeeMarketSnapshot'
 
-const ICE_URL = 'https://www.ice.com/products/15/Coffee-C/data?marketId=5460931'
-const CFTC_URL = 'https://publicreporting.cftc.gov/resource/6dca-aqww.json'
+export const ICE_URL = 'https://www.ice.com/products/15/Coffee-C/data?marketId=5460931'
+export const CFTC_URL = 'https://publicreporting.cftc.gov/resource/6dca-aqww.json'
 const CFTC_MARKET_CODE = '083731'
 
 async function getBrowserExecutablePath(): Promise<string> {
@@ -45,7 +45,9 @@ type CftcRow = {
   open_interest_all?: string | number
 }
 
-async function extractIceRows(): Promise<{ headers: string[]; rows: string[][] }> {
+type IceTableRow = { cells: string[]; sourceUrl?: string }
+
+async function extractIceRows(): Promise<{ headers: string[]; rows: IceTableRow[] }> {
   const executablePath = await getBrowserExecutablePath()
   const browser = await playwrightChromium.launch({
     args: process.platform === 'linux' ? chromium.args : [],
@@ -64,15 +66,18 @@ async function extractIceRows(): Promise<{ headers: string[]; rows: string[][] }
     const tables = await page.locator('table').evaluateAll((elements) =>
       elements.map((table) =>
         Array.from(table.querySelectorAll('tr')).map((row) =>
-          Array.from(row.querySelectorAll('th,td')).map((cell) => (cell.textContent ?? '').replace(/\s+/g, ' ').trim()),
+          ({
+            cells: Array.from(row.querySelectorAll('th,td')).map((cell) => (cell.textContent ?? '').replace(/\s+/g, ' ').trim()),
+            sourceUrl: row.querySelector('a[href]')?.getAttribute('href') ?? undefined,
+          }),
         ),
       ),
     )
     for (const rows of tables) {
-      const header = rows.find((row) => row.some((cell) => /contract/i.test(cell)) && row.some((cell) => /last/i.test(cell)) && row.some((cell) => /volume/i.test(cell)))
+      const header = rows.find((row) => row.cells.some((cell) => /contract/i.test(cell)) && row.cells.some((cell) => /last/i.test(cell)) && row.cells.some((cell) => /volume/i.test(cell)))
       if (header) {
         const headerIndex = rows.indexOf(header)
-        return { headers: header, rows: rows.slice(headerIndex + 1) }
+        return { headers: header.cells, rows: rows.slice(headerIndex + 1) }
       }
     }
     throw new Error('ICE rendered page contained no futures table with Contract, Last, and Volume headers')
@@ -105,6 +110,11 @@ export async function fetchLatestCoffeeOpenInterest(): Promise<{ openInterest: n
 export async function collectIceCoffeeContracts(): Promise<IceCoffeeContract[]> {
   const table = await extractIceRows()
   const contracts = parseRenderedIceRows(table.rows, table.headers)
+  for (const contract of contracts) {
+    contract.sourceUrl = contract.sourceUrl
+      ? new URL(contract.sourceUrl, ICE_URL).toString()
+      : ICE_URL
+  }
   console.log('[coffee-snapshot] Parsed ICE contracts:', JSON.stringify(contracts))
   return contracts
 }

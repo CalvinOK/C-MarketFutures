@@ -41,6 +41,16 @@ test('parses ICE semantic headers for Last, Change, and Volume', () => {
   assert.equal(contracts[1].volume, 13995)
 })
 
+test('preserves an ICE contract source href when supplied', () => {
+  const contracts = parseRenderedIceRows([
+    { cells: ['Sep26', '313.50', '+1.25', '0.40', '5'], sourceUrl: 'https://www.ice.com/contract/sep26' },
+    { cells: ['Dec26', '284.25', '-0.50', '-0.18', '13,995'] },
+  ], ['Contract', 'Last', 'Change', '% Change', 'Volume'])
+
+  assert.equal(contracts[0].sourceUrl, 'https://www.ice.com/contract/sep26')
+  assert.equal(contracts[1].sourceUrl, undefined)
+})
+
 test('calculates contango, backwardation, and flat curves', () => {
   assert.deepEqual(calculateCurveShape(100, 101), { spread: 1, shape: 'Contango' })
   assert.deepEqual(calculateCurveShape(100, 99), { spread: -1, shape: 'Backwardation' })

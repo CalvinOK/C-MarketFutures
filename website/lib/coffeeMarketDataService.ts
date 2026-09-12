@@ -2,6 +2,8 @@ import {
   buildCoffeeMarketSnapshot,
   collectIceCoffeeContracts,
   fetchLatestCoffeeOpenInterest,
+  ICE_URL,
+  CFTC_URL,
 } from '@/scripts/collect-coffee-market-snapshot'
 import type { CoffeeMarketSnapshot, IceCoffeeContract } from '@/lib/coffeeMarketSnapshot'
 import { getLatestCoffeeMarketSnapshot, upsertCoffeeMarketSnapshot } from '@/lib/supabaseServer'
@@ -31,6 +33,7 @@ type ContractRow = {
   source: string
   trade_date: string
   fetched_at: string
+  raw_metadata: { sourceUrl?: string | null } | null
 }
 
 export type CoffeeMarketDataResult = {
@@ -42,6 +45,10 @@ export type CoffeeMarketDataResult = {
     ageMinutes: number
     ttlMinutes: 15
     isStale: boolean
+    sources: {
+      ice: { name: 'ICE'; url: string; fields: string[] }
+      cftc: { name: 'CFTC'; url: string; fields: string[]; asOf: string }
+    }
   }
 }
 
@@ -90,6 +97,8 @@ function contractResult(rows: ContractRow[]): Array<Record<string, unknown>> {
     tradeDate: row.trade_date,
     fetchedAt: row.fetched_at,
     providerTimestamp: row.provider_timestamp,
+    sourceName: row.source === 'ice' ? 'ICE' : row.source,
+    sourceUrl: row.raw_metadata?.sourceUrl ?? (row.source === 'ice' ? ICE_URL : null),
   }))
 }
 
@@ -114,7 +123,7 @@ async function persistContracts(snapshot: CoffeeMarketSnapshot, contracts: IceCo
       fetched_at: retrievedAt,
       updated_at: retrievedAt,
       source: 'ice',
-      raw_metadata: { provider: 'ice-delayed', label: contract.contract },
+      raw_metadata: { provider: 'ice-delayed', label: contract.contract, sourceName: contract.sourceName ?? 'ICE', sourceUrl: contract.sourceUrl ?? null },
     }]
   })
   if (rows.length < 2) throw new Error('ICE returned fewer than two valid Coffee C contracts')
@@ -132,7 +141,17 @@ function makeResult(rows: ContractRow[], snapshot: NonNullable<Awaited<ReturnTyp
   return {
     contracts: contractResult(rows),
     snapshot,
-    metadata: { source, retrievedAt, ageMinutes: ageMinutes(retrievedAt), ttlMinutes: 15, isStale: stale },
+    metadata: {
+      source,
+      retrievedAt,
+      ageMinutes: ageMinutes(retrievedAt),
+      ttlMinutes: 15,
+      isStale: stale,
+      sources: {
+        ice: { name: 'ICE', url: ICE_URL, fields: ['frontPrice', 'frontContract', 'nextPrice', 'nextContract', 'shape', 'volume'] },
+        cftc: { name: 'CFTC', url: CFTC_URL, fields: ['openInterest'], asOf: snapshot.openInterestAsOf },
+      },
+    },
   }
 }
 

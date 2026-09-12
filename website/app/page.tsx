@@ -55,6 +55,9 @@ type ContractApiRow = {
   price_change_pct?: number | null;
   open_interest?: number | null;
   captured_at?: string | null;
+  source?: string | null;
+  sourceUrl?: string | null;
+  sourceName?: string | null;
 };
 
 type ContractsApiResponse = {
@@ -120,7 +123,16 @@ type SnapshotData = {
 
 type SnapshotApiResponse = {
   snapshot: SnapshotData;
-  metadata?: { isStale?: boolean; ageMinutes?: number; fetchedAt?: string; lastSuccessfulUpdate?: string };
+  metadata?: {
+    isStale?: boolean;
+    ageMinutes?: number;
+    fetchedAt?: string;
+    lastSuccessfulUpdate?: string;
+    sources?: {
+      ice?: { name: string; url: string };
+      cftc?: { name: string; url: string; asOf: string };
+    };
+  };
 };
 
 // ─── Display helpers ──────────────────────────────────────────────────────────
@@ -507,6 +519,7 @@ export default function CoffeeFuturesSite() {
     pct: "N/A",
     volume: "N/A",
     openInterest: "N/A",
+    sourceUrl: null,
   }));
 
   // Derive display data from the API, or show placeholders after a failed request.
@@ -526,6 +539,7 @@ export default function CoffeeFuturesSite() {
             ? (Number(c.priceChangePct ?? c.price_change_pct) >= 0 ? "+" : "") + Number(c.priceChangePct ?? c.price_change_pct).toFixed(2) + "%"
             : "N/A",
         volume: c.volume == null ? "N/A" : formatK(Number(c.volume)),
+        sourceUrl: c.sourceUrl ?? null,
         openInterest: c.openInterest == null && c.open_interest == null ? "N/A" : formatK(Number(c.openInterest ?? c.open_interest)),
       }))
     : contractsUnavailable
@@ -1467,6 +1481,16 @@ export default function CoffeeFuturesSite() {
                         </div>
                       </div>
                     </div>
+                    {contract.sourceUrl && (
+                      <a
+                        href={contract.sourceUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={`mt-3 text-xs font-medium underline underline-offset-2 ${index === 0 ? "text-white/80" : "text-[var(--bond-blue)]"}`}
+                      >
+                        View on ICE ↗
+                      </a>
+                    )}
                   </article>
                   ))}
                 </div>
@@ -1499,6 +1523,7 @@ export default function CoffeeFuturesSite() {
               </div>
 
               {liveSnapshot ? (
+                <>
                 <div className="mt-4 grid grid-cols-2 gap-3">
                   {displayStats.map((stat) => (
                   <div
@@ -1535,6 +1560,22 @@ export default function CoffeeFuturesSite() {
                   </div>
                   ))}
                 </div>
+                {snapshotMetadata?.sources && (
+                  <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-[var(--muted)]">
+                    <span>Sources:</span>
+                    {snapshotMetadata.sources.ice && (
+                      <a href={snapshotMetadata.sources.ice.url} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">
+                        ICE Coffee C ↗
+                      </a>
+                    )}
+                    {snapshotMetadata.sources.cftc && (
+                      <a href={snapshotMetadata.sources.cftc.url} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">
+                        CFTC Open Interest ↗
+                      </a>
+                    )}
+                  </div>
+                )}
+                </>
               ) : (
                 <div className="mt-4 flex items-center justify-center rounded-2xl border border-dashed border-[var(--line)] bg-white/50 px-4 py-6 text-center text-sm text-[var(--muted)]">
                   {snapshotLoading ? "Loading snapshot data..." : snapshotError}

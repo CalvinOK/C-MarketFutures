@@ -8,6 +8,8 @@ export type IceCoffeeContract = {
   priceChange?: number | null
   percentChange?: number | null
   symbol?: string
+  sourceUrl?: string
+  sourceName?: string
 }
 
 export type CoffeeMarketSnapshot = {
@@ -85,7 +87,9 @@ export function sortCoffeeContracts(contracts: IceCoffeeContract[]): IceCoffeeCo
   })
 }
 
-export function parseRenderedIceRows(rows: string[][], headers?: string[]): IceCoffeeContract[] {
+type ParsedIceRow = { cells: string[]; sourceUrl?: string }
+
+export function parseRenderedIceRows(rows: string[][] | ParsedIceRow[], headers?: string[]): IceCoffeeContract[] {
   const normalizedHeaders = headers?.map((header) => header.toLowerCase().replace(/[^a-z%]/g, ''))
   const indexOfHeader = (...names: string[]) => normalizedHeaders?.findIndex((header) => names.includes(header)) ?? -1
   const lastIndex = indexOfHeader('last', 'price')
@@ -93,7 +97,9 @@ export function parseRenderedIceRows(rows: string[][], headers?: string[]): IceC
   const percentIndex = indexOfHeader('%change', 'percentchange', 'change%')
   const volumeIndex = indexOfHeader('volume', 'vol')
   const contracts: IceCoffeeContract[] = []
-  for (const cells of rows) {
+  for (const row of rows) {
+    const cells = Array.isArray(row) ? row : row.cells
+    const sourceUrl = Array.isArray(row) ? undefined : row.sourceUrl
     const contractIndex = cells.findIndex((cell) => parseContractMonth(cell) !== null)
     if (contractIndex < 0) continue
 
@@ -111,6 +117,8 @@ export function parseRenderedIceRows(rows: string[][], headers?: string[]): IceC
       percentChange: percentIndex >= 0 ? parseNumeric(cells[percentIndex]) : null,
       priceAsOf: normalizeIceTimestamp(cells[contractIndex + 2] ?? ''),
       symbol: normalizeIceSymbol(contract) ?? undefined,
+      sourceName: 'ICE',
+      sourceUrl,
     })
   }
 
