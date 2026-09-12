@@ -8,6 +8,7 @@ import {
   parseNumeric,
   parseRenderedIceRows,
   type CoffeeMarketSnapshot,
+  type IceCoffeeContract,
 } from '@/lib/coffeeMarketSnapshot'
 
 const ICE_URL = 'https://www.ice.com/products/15/Coffee-C/data?marketId=5460931'
@@ -44,7 +45,7 @@ type CftcRow = {
   open_interest_all?: string | number
 }
 
-async function extractIceRows(): Promise<string[][]> {
+async function extractIceRows(): Promise<{ headers: string[]; rows: string[][] }> {
   const executablePath = await getBrowserExecutablePath()
   const browser = await playwrightChromium.launch({
     args: process.platform === 'linux' ? chromium.args : [],
@@ -71,7 +72,7 @@ async function extractIceRows(): Promise<string[][]> {
       const header = rows.find((row) => row.some((cell) => /contract/i.test(cell)) && row.some((cell) => /last/i.test(cell)) && row.some((cell) => /volume/i.test(cell)))
       if (header) {
         const headerIndex = rows.indexOf(header)
-        return rows.slice(headerIndex + 1)
+        return { headers: header, rows: rows.slice(headerIndex + 1) }
       }
     }
     throw new Error('ICE rendered page contained no futures table with Contract, Last, and Volume headers')
@@ -80,7 +81,7 @@ async function extractIceRows(): Promise<string[][]> {
   }
 }
 
-async function fetchLatestCoffeeOpenInterest(): Promise<{ openInterest: number; openInterestAsOf: string }> {
+export async function fetchLatestCoffeeOpenInterest(): Promise<{ openInterest: number; openInterestAsOf: string }> {
   const query = new URLSearchParams({
     '$select': 'cftc_contract_market_code,report_date_as_yyyy_mm_dd,open_interest_all',
     '$where': `cftc_contract_market_code = '${CFTC_MARKET_CODE}'`,
@@ -101,11 +102,19 @@ async function fetchLatestCoffeeOpenInterest(): Promise<{ openInterest: number; 
   return { openInterest, openInterestAsOf: reportDate }
 }
 
-export async function collectCoffeeMarketSnapshot(): Promise<CoffeeMarketSnapshot> {
-  const rows = await extractIceRows()
-  const contracts = parseRenderedIceRows(rows)
+export async function collectIceCoffeeContracts(): Promise<IceCoffeeContract[]> {
+  const table = await extractIceRows()
+  const contracts = parseRenderedIceRows(table.rows, table.headers)
   console.log('[coffee-snapshot] Parsed ICE contracts:', JSON.stringify(contracts))
-  const [openInterest] = await Promise.all([fetchLatestCoffeeOpenInterest()])
+  return contracts
+}
+
+export async function collectCoffeeMarketSnapshot(existingOpenInterest?: { openInterest: number; openInterestAsOf: string }): Promise<CoffeeMarketSnapshot> {
+  const contracts = await collectIceCoffeeContracts()
+  return buildCoffeeMarketSnapshot(contracts, existingOpenInterest ?? await fetchLatestCoffeeOpenInterest())
+}
+
+export function buildCoffeeMarketSnapshot(contracts: IceCoffeeContract[], openInterest: { openInterest: number; openInterestAsOf: string }): CoffeeMarketSnapshot {
   const front = contracts[0]
   const next = contracts[1]
   const { spread, shape } = calculateCurveShape(front.price, next.price)

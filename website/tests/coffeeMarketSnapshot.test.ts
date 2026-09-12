@@ -29,6 +29,18 @@ test('parses comma-separated and blank volumes', () => {
   assert.equal(calculateTotalVolume(contracts), 19113)
 })
 
+test('parses ICE semantic headers for Last, Change, and Volume', () => {
+  const contracts = parseRenderedIceRows([
+    ['Sep26', '313.50', '+1.25', '0.40', '5'],
+    ['Dec26', '284.25', '-0.50', '-0.18', '13,995'],
+  ], ['Contract', 'Last', 'Change', '% Change', 'Volume'])
+
+  assert.equal(contracts[0].price, 313.5)
+  assert.equal(contracts[0].priceChange, 1.25)
+  assert.equal(contracts[0].percentChange, 0.4)
+  assert.equal(contracts[1].volume, 13995)
+})
+
 test('calculates contango, backwardation, and flat curves', () => {
   assert.deepEqual(calculateCurveShape(100, 101), { spread: 1, shape: 'Contango' })
   assert.deepEqual(calculateCurveShape(100, 99), { spread: -1, shape: 'Backwardation' })

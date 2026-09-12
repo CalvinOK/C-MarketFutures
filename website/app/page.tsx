@@ -303,7 +303,7 @@ export default function CoffeeFuturesSite() {
         "Contract months that expire later than the front month.",
     },
     {
-      term: "Settlement",
+      term: "Last price",
       definition:
         "The official end-of-day price used by the exchange for margining and valuation.",
     },
@@ -593,10 +593,10 @@ export default function CoffeeFuturesSite() {
           value: liveSnapshot.shape,
           sub:
             liveSnapshot.shape === "Contango"
-              ? "Deferred > spot"
+              ? "Next > front"
               : liveSnapshot.shape === "Backwardation"
-                ? "Spot > deferred"
-                : "Front = deferred",
+                ? "Front > next"
+                : "Front = next",
           featured: false,
         },
         {
@@ -1422,7 +1422,7 @@ export default function CoffeeFuturesSite() {
                         index === 0 ? "text-white/70" : "text-[var(--muted)]"
                       }`}
                     >
-                      US¢/lb settlement
+                      US¢/lb delayed price
                     </div>
 
                     <div className="mt-4 grid grid-cols-2 gap-x-3 gap-y-2 border-t border-current/10 pt-3 text-xs tabular-nums">
@@ -1466,26 +1466,6 @@ export default function CoffeeFuturesSite() {
                           {contract.volume}
                         </div>
                       </div>
-                      <div className="col-span-2 space-y-0.5">
-                        <div
-                          className={
-                            index === 0
-                              ? "text-white/65"
-                              : "text-[var(--muted)]"
-                          }
-                        >
-                          Open interest
-                        </div>
-                        <div
-                          className={
-                            index === 0
-                              ? "text-white/85"
-                              : "text-[var(--ink)]"
-                          }
-                        >
-                          {contract.openInterest}
-                        </div>
-                      </div>
                     </div>
                   </article>
                   ))}
@@ -1500,7 +1480,7 @@ export default function CoffeeFuturesSite() {
                     Market snapshot
                   </h2>
                   <p className="text-xs text-[var(--muted)]">
-                    Core futures metrics at a glance
+                    Delayed market data · updated from ICE
                   </p>
                   {snapshotMetadata && (
                     <p className="mt-1 text-xs text-[var(--muted)]">

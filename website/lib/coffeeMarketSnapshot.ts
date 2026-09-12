@@ -5,6 +5,9 @@ export type IceCoffeeContract = {
   price: number
   volume: number
   priceAsOf: string | null
+  priceChange?: number | null
+  percentChange?: number | null
+  symbol?: string
 }
 
 export type CoffeeMarketSnapshot = {
@@ -32,6 +35,11 @@ const MONTHS: Record<string, number> = {
   Dec: 12,
 }
 
+const MONTH_CODES: Record<string, string> = {
+  Jan: 'F', Feb: 'G', Mar: 'H', Apr: 'J', May: 'K', Jun: 'M',
+  Jul: 'N', Aug: 'Q', Sep: 'U', Oct: 'V', Nov: 'X', Dec: 'Z',
+}
+
 export function parseNumeric(value: string | number | null | undefined): number | null {
   if (typeof value === 'number') return Number.isFinite(value) ? value : null
   if (!value) return null
@@ -49,6 +57,14 @@ export function parseContractMonth(label: string): { year: number; month: number
   const numericYear = Number(match[2])
   const year = match[2].length === 2 ? 2000 + numericYear : numericYear
   return month && Number.isInteger(year) ? { year, month } : null
+}
+
+export function normalizeIceSymbol(label: string): string | null {
+  const parsed = parseContractMonth(label)
+  if (!parsed) return null
+  const month = Object.entries(MONTHS).find(([, value]) => value === parsed.month)?.[0]
+  const code = month ? MONTH_CODES[month] : null
+  return code ? `KC${code}${String(parsed.year).slice(-2)}` : null
 }
 
 export function calculateCurveShape(frontPrice: number, nextPrice: number): { spread: number; shape: CurveShape } {
@@ -69,19 +85,33 @@ export function sortCoffeeContracts(contracts: IceCoffeeContract[]): IceCoffeeCo
   })
 }
 
-export function parseRenderedIceRows(rows: string[][]): IceCoffeeContract[] {
+export function parseRenderedIceRows(rows: string[][], headers?: string[]): IceCoffeeContract[] {
+  const normalizedHeaders = headers?.map((header) => header.toLowerCase().replace(/[^a-z%]/g, ''))
+  const indexOfHeader = (...names: string[]) => normalizedHeaders?.findIndex((header) => names.includes(header)) ?? -1
+  const lastIndex = indexOfHeader('last', 'price')
+  const changeIndex = indexOfHeader('change', 'netchange')
+  const percentIndex = indexOfHeader('%change', 'percentchange', 'change%')
+  const volumeIndex = indexOfHeader('volume', 'vol')
   const contracts: IceCoffeeContract[] = []
   for (const cells of rows) {
     const contractIndex = cells.findIndex((cell) => parseContractMonth(cell) !== null)
     if (contractIndex < 0) continue
 
     const contract = cells[contractIndex].trim()
-    const price = parseNumeric(cells[contractIndex + 1])
-    const volumeCell = cells[cells.length - 1]?.trim() ?? ''
+    const price = parseNumeric(cells[lastIndex >= 0 ? lastIndex : contractIndex + 1])
+    const volumeCell = cells[volumeIndex >= 0 ? volumeIndex : cells.length - 1]?.trim() ?? ''
     const volume = volumeCell === '-' || volumeCell === '' ? 0 : parseNumeric(volumeCell)
     if (price === null || price <= 0 || volume === null || volume < 0) continue
 
-    contracts.push({ contract, price, volume, priceAsOf: normalizeIceTimestamp(cells[contractIndex + 2] ?? '') })
+    contracts.push({
+      contract,
+      price,
+      volume,
+      priceChange: changeIndex >= 0 ? parseNumeric(cells[changeIndex]) : null,
+      percentChange: percentIndex >= 0 ? parseNumeric(cells[percentIndex]) : null,
+      priceAsOf: normalizeIceTimestamp(cells[contractIndex + 2] ?? ''),
+      symbol: normalizeIceSymbol(contract) ?? undefined,
+    })
   }
 
   const unique = Array.from(new Map(contracts.map((contract) => [contract.contract, contract])).values())

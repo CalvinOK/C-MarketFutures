@@ -3,6 +3,8 @@ import { getCoffeeContracts } from '@/lib/coffeeContracts'
 import { NextResponse } from 'next/server'
 
 export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
+export const maxDuration = 60
 
 export async function GET(request: Request) {
   const authError = requireInternalTokenIfConfigured(request)
