@@ -5,7 +5,7 @@ import {
   ICE_URL,
   CFTC_URL,
 } from '@/scripts/collect-coffee-market-snapshot'
-import type { CoffeeMarketSnapshot, IceCoffeeContract } from '@/lib/coffeeMarketSnapshot'
+import { derivePriceChangeFromPercent, type CoffeeMarketSnapshot, type IceCoffeeContract } from '@/lib/coffeeMarketSnapshot'
 import { getLatestCoffeeMarketSnapshot, upsertCoffeeMarketSnapshot } from '@/lib/supabaseServer'
 import {
   completeRefresh,
@@ -83,13 +83,18 @@ async function readContracts(): Promise<ContractRow[]> {
 }
 
 function contractResult(rows: ContractRow[]): Array<Record<string, unknown>> {
-  return rows.map((row) => ({
+  return rows.map((row) => {
+    const lastPrice = row.last_price == null ? null : Number(row.last_price)
+    const percentChange = row.percent_change == null ? null : Number(row.percent_change)
+    const storedChange = row.price_change == null ? null : Number(row.price_change)
+    const priceChange = storedChange ?? (lastPrice === null ? null : derivePriceChangeFromPercent(lastPrice, percentChange))
+    return {
     symbol: row.symbol,
     label: row.contract_name ?? row.symbol,
     expiryDate: row.expiration_date,
     lastPrice: row.last_price == null ? null : Number(row.last_price),
-    priceChange: row.price_change == null ? null : Number(row.price_change),
-    priceChangePct: row.percent_change == null ? null : Number(row.percent_change),
+    priceChange,
+    priceChangePct: percentChange,
     volume: row.volume == null ? null : Number(row.volume),
     openInterest: null,
     settlementPrice: null,
@@ -99,7 +104,8 @@ function contractResult(rows: ContractRow[]): Array<Record<string, unknown>> {
     providerTimestamp: row.provider_timestamp,
     sourceName: row.source === 'ice' ? 'ICE' : row.source,
     sourceUrl: row.raw_metadata?.sourceUrl ?? (row.source === 'ice' ? ICE_URL : null),
-  }))
+    }
+  })
 }
 
 async function persistContracts(snapshot: CoffeeMarketSnapshot, contracts: IceCoffeeContract[]): Promise<void> {

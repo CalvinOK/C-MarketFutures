@@ -1341,8 +1341,8 @@ export default function CoffeeFuturesSite() {
             </div>
           </div>
 
-          <div className="grid gap-4 lg:grid-cols-[1.25fr_0.75fr]">
-            <div className="rounded-3xl border border-[var(--line)] bg-white p-4">
+          <div className="grid items-stretch gap-4 lg:grid-cols-[1.25fr_0.75fr]">
+            <div className="flex h-full min-h-0 flex-col rounded-3xl border border-[var(--line)] bg-white p-4">
               <div className="mb-3 flex items-center justify-between gap-3">
                 <div className="min-w-0">
                   <h2 className="text-base font-medium text-[var(--bond-blue)]">
