@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import bondLogoNavy from "../public/bond-logo-navy.png";
+import { sortContractRecords } from "@/lib/coffeeMarketSnapshot";
 
 type HistoryRow = {
   date: string;
@@ -524,7 +525,7 @@ export default function CoffeeFuturesSite() {
 
   // Derive display data from the API, or show placeholders after a failed request.
   const displayContracts = liveContracts
-    ? liveContracts.map((c) => ({
+    ? sortContractRecords(liveContracts).map((c) => ({
         month: c.label ?? symbolToMonth(c.symbol),
         symbol: c.symbol,
         price: Number.isFinite(Number(c.lastPrice ?? c.last_price))
@@ -547,6 +548,7 @@ export default function CoffeeFuturesSite() {
       : [];
 
   const contractsLoading = !liveContracts && !contractsUnavailable;
+  const contractsSourceUrl = liveContracts?.find((contract) => contract.sourceUrl)?.sourceUrl ?? null;
 
   const contractsPerPage = 4;
   const totalContractPages = Math.ceil(displayContracts.length / contractsPerPage);
@@ -956,7 +958,7 @@ export default function CoffeeFuturesSite() {
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div className="max-w-3xl flex-1">
               <div className="flex flex-col gap-4">
-                <div>
+                <div className="min-w-0">
                   <h1 className="mt-3 max-w-xl text-2xl font-semibold tracking-tight text-[var(--bond-blue)] sm:text-3xl">
                     Great Lakes Coffee Futures
                   </h1>
@@ -982,7 +984,7 @@ export default function CoffeeFuturesSite() {
           <div className="grid gap-4 xl:grid-cols-[1.2fr_1fr]">
             <div className="rounded-3xl border border-[var(--line)] bg-[var(--baby-blue)]/25 p-4">
               <div className="mb-3 flex items-center justify-between gap-3">
-                <div>
+                <div className="min-w-0">
                   <h2 className="text-base font-medium text-[var(--bond-blue)]">
                     Price Projection
                   </h2>
@@ -1059,6 +1061,15 @@ export default function CoffeeFuturesSite() {
                         y2={chart.plotBottom}
                         stroke="rgba(32,44,102,0.18)"
                         strokeWidth="1.2"
+                      />
+
+                      <line
+                        x1={chart.left}
+                        y1={chart.plotBottom}
+                        x2={chart.plotRight}
+                        y2={chart.plotBottom}
+                        stroke="rgba(32,44,102,0.28)"
+                        strokeWidth="1.4"
                       />
 
                       <rect
@@ -1333,12 +1344,17 @@ export default function CoffeeFuturesSite() {
           <div className="grid gap-4 lg:grid-cols-[1.25fr_0.75fr]">
             <div className="rounded-3xl border border-[var(--line)] bg-white p-4">
               <div className="mb-3 flex items-center justify-between gap-3">
-                <div>
+                <div className="min-w-0">
                   <h2 className="text-base font-medium text-[var(--bond-blue)]">
                     Contracts
                   </h2>
-                  <p className="text-xs text-[var(--muted)]">
-                    Compact contract cards
+                  <p className="flex min-w-0 items-center gap-1 text-xs text-[var(--muted)]">
+                    <span>Compact contract cards · Delayed ICE data</span>
+                    {contractsSourceUrl && (
+                      <a href={contractsSourceUrl} target="_blank" rel="noopener noreferrer" className="shrink-0 underline underline-offset-2">
+                        View on ICE ↗
+                      </a>
+                    )}
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
@@ -1481,16 +1497,6 @@ export default function CoffeeFuturesSite() {
                         </div>
                       </div>
                     </div>
-                    {contract.sourceUrl && (
-                      <a
-                        href={contract.sourceUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className={`mt-3 text-xs font-medium underline underline-offset-2 ${index === 0 ? "text-white/80" : "text-[var(--bond-blue)]"}`}
-                      >
-                        View on ICE ↗
-                      </a>
-                    )}
                   </article>
                   ))}
                 </div>
@@ -1499,11 +1505,11 @@ export default function CoffeeFuturesSite() {
 
             <div className="rounded-3xl border border-[var(--line)] bg-[linear-gradient(180deg,rgba(123,159,188,0.18),rgba(197,174,203,0.14))] p-4">
               <div className="flex items-center justify-between gap-3">
-                <div>
+                <div className="min-w-0">
                   <h2 className="text-base font-medium text-[var(--bond-blue)]">
                     Market snapshot
                   </h2>
-                  <p className="text-xs text-[var(--muted)]">
+                  <p className="whitespace-normal text-xs text-[var(--muted)] sm:whitespace-nowrap">
                     Delayed market data · updated from ICE
                   </p>
                   {snapshotMetadata && (
@@ -1516,7 +1522,7 @@ export default function CoffeeFuturesSite() {
                 <button
                   type="button"
                   onClick={handleDownloadLiveSnapshot}
-                  className="rounded-full border border-[var(--line-strong)] bg-white px-3 py-1 text-xs font-medium text-[var(--bond-blue)] transition hover:border-[var(--bond-blue)]/35 hover:bg-[var(--baby-blue)]/22"
+                  className="shrink-0 rounded-full border border-[var(--line-strong)] bg-white px-3 py-1 text-xs font-medium text-[var(--bond-blue)] transition hover:border-[var(--bond-blue)]/35 hover:bg-[var(--baby-blue)]/22"
                 >
                   Download snapshot
                 </button>

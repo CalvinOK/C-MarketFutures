@@ -5,6 +5,7 @@ import {
   calculateTotalVolume,
   parseContractMonth,
   parseRenderedIceRows,
+  sortContractRecords,
 } from '../lib/coffeeMarketSnapshot'
 
 test('orders Coffee C contract months chronologically', () => {
@@ -16,6 +17,17 @@ test('orders Coffee C contract months chronologically', () => {
 
   assert.deepEqual(contracts.map((contract) => contract.contract), ['Dec26', 'Mar27', 'Jul27'])
   assert.deepEqual(parseContractMonth('May26'), { year: 2026, month: 5 })
+})
+
+test('sorts the complete contract list before pagination order is applied', () => {
+  const sorted = sortContractRecords([
+    { label: 'Sep26', symbol: 'KCU26' },
+    { label: 'Sep27', symbol: 'KCU27' },
+    { label: 'Dec26', symbol: 'KCZ26' },
+    { label: 'Dec27', symbol: 'KCZ27' },
+    { label: 'Mar27', symbol: 'KCH27' },
+  ])
+  assert.deepEqual(sorted.map((contract) => contract.label), ['Sep26', 'Dec26', 'Mar27', 'Sep27', 'Dec27'])
 })
 
 test('parses comma-separated and blank volumes', () => {

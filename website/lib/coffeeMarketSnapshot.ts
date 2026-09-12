@@ -87,6 +87,26 @@ export function sortCoffeeContracts(contracts: IceCoffeeContract[]): IceCoffeeCo
   })
 }
 
+export function sortContractRecords<T extends { label?: string | null; expiryDate?: string | null; symbol?: string }>(records: T[]): T[] {
+  return [...records].sort((left, right) => {
+    const leftDate = left.expiryDate ? Date.parse(left.expiryDate) : NaN
+    const rightDate = right.expiryDate ? Date.parse(right.expiryDate) : NaN
+    if (Number.isFinite(leftDate) && Number.isFinite(rightDate)) return leftDate - rightDate
+    const leftMonth = parseContractMonth(left.label ?? left.symbol ?? '') ?? parseSymbolMonth(left.symbol ?? '')
+    const rightMonth = parseContractMonth(right.label ?? right.symbol ?? '') ?? parseSymbolMonth(right.symbol ?? '')
+    if (!leftMonth || !rightMonth) return 0
+    return leftMonth.year - rightMonth.year || leftMonth.month - rightMonth.month
+  })
+}
+
+function parseSymbolMonth(symbol: string): { year: number; month: number } | null {
+  const match = symbol.match(/^KC([FGHJKMNQUVXZ])(\d{2}|\d{4})$/i)
+  if (!match) return null
+  const month = Object.entries(MONTH_CODES).find(([, code]) => code.toLowerCase() === match[1].toLowerCase())?.[0]
+  const year = match[2].length === 2 ? 2000 + Number(match[2]) : Number(match[2])
+  return month && Number.isInteger(year) ? { year, month: MONTHS[month] ?? 0 } : null
+}
+
 type ParsedIceRow = { cells: string[]; sourceUrl?: string }
 
 export function parseRenderedIceRows(rows: string[][] | ParsedIceRow[], headers?: string[]): IceCoffeeContract[] {
