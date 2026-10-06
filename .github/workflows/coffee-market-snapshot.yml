@@ -43,10 +43,15 @@ jobs:
             echo "::error::WEBSITE_URL and CRON_SECRET repository secrets are required to update historical chart data."
             exit 1
           fi
-          response="$(curl --fail-with-body --silent --show-error --location --retry 2 --max-time 60 \
+          endpoint="${WEBSITE_URL%/}/api/coffee/update-history"
+          resolved_endpoint="$(curl --silent --show-error --location --proto '=https' --proto-redir '=https' \
+            --retry 2 --max-time 30 --output /dev/null --write-out '%{url_effective}' \
+            "$endpoint")"
+          echo "Resolved history updater endpoint: $resolved_endpoint"
+          response="$(curl --fail-with-body --silent --show-error --retry 2 --max-time 60 \
             -H "Authorization: Bearer $CRON_SECRET" \
             -H "Accept: application/json" \
-            "${WEBSITE_URL%/}/api/coffee/update-history")"
+            "$resolved_endpoint")"
           echo "$response"
           node -e '
             const payload = JSON.parse(process.argv[1]);
