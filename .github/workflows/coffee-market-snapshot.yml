@@ -50,11 +50,18 @@ jobs:
             "$endpoint")"
           resolved_endpoint="https://${resolved_endpoint#*://}"
           echo "Resolved history updater endpoint: $resolved_endpoint"
-          response="$(curl --fail-with-body --silent --show-error --retry 2 --max-time 60 \
+          response="$(curl --silent --show-error --retry 2 --max-time 60 \
             -H "Authorization: Bearer $CRON_SECRET" \
             -H "Accept: application/json" \
+            --write-out '\n__HTTP_STATUS__%{http_code}' \
             "$resolved_endpoint")"
-          echo "$response"
+          http_status="${response##*__HTTP_STATUS__}"
+          response="${response%__HTTP_STATUS__*}"
+          printf '%s\n' "$response"
+          if [ "$http_status" -lt 200 ] || [ "$http_status" -ge 300 ]; then
+            echo "::error::History updater returned HTTP $http_status"
+            exit 1
+          fi
           node -e '
             const payload = JSON.parse(process.argv[1]);
             const allowed = new Set(["inserted", "updated", "no_new_market_date"]);
