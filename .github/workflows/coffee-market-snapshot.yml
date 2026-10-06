@@ -32,3 +32,18 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
           CFTC_APP_TOKEN: ${{ secrets.CFTC_APP_TOKEN }}
+
+      - name: Update Coffee C historical chart data
+        env:
+          WEBSITE_URL: ${{ secrets.WEBSITE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          if [ -z "$WEBSITE_URL" ] || [ -z "$CRON_SECRET" ]; then
+            echo "::error::WEBSITE_URL and CRON_SECRET repository secrets are required to update historical chart data."
+            exit 1
+          fi
+          curl --fail-with-body --silent --show-error --retry 2 --max-time 60 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -H "Accept: application/json" \
+            "${WEBSITE_URL%/}/api/coffee/update-history"

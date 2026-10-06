@@ -48,3 +48,17 @@ python coffee_xgboost_projection.py \
 ## Assumptions
 
 For future exogenous variables such as FX, COT, and weather, the script carries the latest observed values forward unless you supply a richer future scenario file. That makes this a baseline conditional projection, not a structural market forecast.
+
+## Website market-data refresh
+
+The scheduled GitHub Actions workflow updates both the current Coffee C snapshot and
+the historical data used by the website chart. Configure these repository secrets:
+
+- `SUPABASE_URL`
+- `SUPABASE_SECRET_KEY`
+- `CFTC_APP_TOKEN`
+- `WEBSITE_URL` — the deployed website origin, without a trailing slash
+- `CRON_SECRET` — the same value configured in the website deployment
+
+The website's `COFFEE_HISTORY_CSV_URL` or `MARKET_API_BASE_URL` must also be configured
+in the deployment so `/api/coffee/update-history` can retrieve the latest daily row.
