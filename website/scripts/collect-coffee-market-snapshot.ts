@@ -1,6 +1,7 @@
 import chromium from '@sparticuz/chromium'
 import { chromium as playwrightChromium } from 'playwright-core'
 import { existsSync } from 'node:fs'
+import { pathToFileURL } from 'node:url'
 import {
   calculateCurveShape,
   calculateTotalVolume,
@@ -10,6 +11,7 @@ import {
   type CoffeeMarketSnapshot,
   type IceCoffeeContract,
 } from '@/lib/coffeeMarketSnapshot'
+import { upsertCoffeeMarketSnapshot } from '@/lib/supabaseServer'
 
 export const ICE_URL = 'https://www.ice.com/products/15/Coffee-C/data?marketId=5460931'
 export const CFTC_URL = 'https://publicreporting.cftc.gov/resource/6dca-aqww.json'
@@ -149,4 +151,17 @@ export function buildCoffeeMarketSnapshot(contracts: IceCoffeeContract[], openIn
   }
   console.log('[coffee-snapshot] Calculated snapshot:', JSON.stringify(snapshot))
   return snapshot
+}
+
+async function main(): Promise<void> {
+  const snapshot = await collectCoffeeMarketSnapshot()
+  await upsertCoffeeMarketSnapshot(snapshot)
+  console.log(`[coffee-snapshot] Persisted market date ${snapshot.marketDate}`)
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((error: unknown) => {
+    console.error('[coffee-snapshot] Failed:', error instanceof Error ? error.message : String(error))
+    process.exitCode = 1
+  })
 }
