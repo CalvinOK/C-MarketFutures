@@ -44,9 +44,11 @@ jobs:
             exit 1
           fi
           endpoint="${WEBSITE_URL%/}/api/coffee/update-history"
+          endpoint="https://${endpoint#*://}"
           resolved_endpoint="$(curl --silent --show-error --location --proto '=https' --proto-redir '=https' \
             --retry 2 --max-time 30 --output /dev/null --write-out '%{url_effective}' \
             "$endpoint")"
+          resolved_endpoint="https://${resolved_endpoint#*://}"
           echo "Resolved history updater endpoint: $resolved_endpoint"
           response="$(curl --fail-with-body --silent --show-error --retry 2 --max-time 60 \
             -H "Authorization: Bearer $CRON_SECRET" \
