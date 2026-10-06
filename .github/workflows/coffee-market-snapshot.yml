@@ -43,7 +43,16 @@ jobs:
             echo "::error::WEBSITE_URL and CRON_SECRET repository secrets are required to update historical chart data."
             exit 1
           fi
-          curl --fail-with-body --silent --show-error --retry 2 --max-time 60 \
+          response="$(curl --fail-with-body --silent --show-error --location --retry 2 --max-time 60 \
             -H "Authorization: Bearer $CRON_SECRET" \
             -H "Accept: application/json" \
-            "${WEBSITE_URL%/}/api/coffee/update-history"
+            "${WEBSITE_URL%/}/api/coffee/update-history")"
+          echo "$response"
+          node -e '
+            const payload = JSON.parse(process.argv[1]);
+            const allowed = new Set(["inserted", "updated", "no_new_market_date"]);
+            if (!allowed.has(payload.status)) {
+              throw new Error(`Unexpected history updater response: ${payload.status ?? "missing status"}`);
+            }
+            console.log(`History update status: ${payload.status}, date: ${payload.date ?? "unknown"}`);
+          ' "$response"
